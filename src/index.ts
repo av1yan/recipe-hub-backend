@@ -26,6 +26,56 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' })
 })
 
+// Database initialization (temporary - for setup only)
+app.post('/api/init-db', async (req, res) => {
+  try {
+    const { PrismaClient } = await import('@prisma/client')
+    const bcryptjs = await import('bcryptjs')
+    const prisma = new PrismaClient()
+
+    try {
+      // First, check if we can connect and if tables exist
+      const existingUser = await prisma.user.findFirst()
+
+      if (existingUser) {
+        // Tables exist, check for demo user
+        const demoUser = await prisma.user.findUnique({
+          where: { email: 'demo@example.com' }
+        })
+        if (demoUser) {
+          await prisma.$disconnect()
+          return res.json({ status: 'already_initialized', user: 'demo@example.com' })
+        }
+      }
+    } catch (e) {
+      // Tables likely don't exist yet
+      console.log('Tables may not exist yet, creating...')
+    }
+
+    // Try to create test user (if table exists)
+    try {
+      const hashedPassword = await bcryptjs.default.hash('Demo123456!', 10)
+      const user = await prisma.user.create({
+        data: {
+          email: 'demo@example.com',
+          name: 'Demo User',
+          passwordHash: hashedPassword
+        }
+      })
+      await prisma.$disconnect()
+      return res.json({ status: 'initialized', user: user.email })
+    } catch (createError) {
+      await prisma.$disconnect()
+      return res.status(500).json({
+        error: 'Database schema not ready. Please run: npm run db:push',
+        details: createError instanceof Error ? createError.message : 'Unknown error'
+      })
+    }
+  } catch (error) {
+    res.status(500).json({ error: error instanceof Error ? error.message : 'Database initialization failed' })
+  }
+})
+
 // Error handler
 app.use(errorHandler)
 
