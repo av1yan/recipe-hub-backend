@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "start": "npm run db:setup && node dist/index.js",
     "postinstall": "npm run build",
     "db:push": "prisma db push --skip-generate",

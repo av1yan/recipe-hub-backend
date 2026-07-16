@@ -43,7 +43,7 @@ export async function listMealPlans(userId: string) {
   })
 
   // Transform flat meals array into nested structure by day and mealType
-  return plans.map(plan => {
+  return plans.map((plan: any) => {
     const mealsByDay = plan.meals.reduce(
       (acc: Record<string, Record<string, any>>, meal: any) => {
         if (!acc[meal.day]) {
