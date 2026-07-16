@@ -45,8 +45,10 @@ router.get('/', authMiddleware, async (req: Request, res: Response, next: NextFu
 router.post('/:id/meals', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { recipeId, day, mealType } = req.body
-    const meal = await addMealToMealPlan(req.user!.userId, req.params.id, recipeId, day, mealType)
-    res.json(meal)
+    await addMealToMealPlan(req.user!.userId, req.params.id, recipeId, day, mealType)
+    // Return the updated meal plan
+    const updatedPlan = await getMealPlan(req.user!.userId, req.params.id)
+    res.json(updatedPlan)
   } catch (err) {
     next(err)
   }
