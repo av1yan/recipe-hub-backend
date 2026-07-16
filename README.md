@@ -1,6 +1,6 @@
-# RECIPhub Backend API
+# recipHub Backend API
 
-Complete backend for the RECIPhub recipe and meal planning application.
+Complete backend for the recipHub recipe and meal planning application.
 
 ## Tech Stack
 

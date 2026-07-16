@@ -30,6 +30,6 @@ app.get('/health', (req, res) => {
 app.use(errorHandler)
 
 app.listen(PORT, () => {
-  console.log(`🚀 RECIPhub API running on http://localhost:${PORT}`)
+  console.log(`🚀 recipHub API running on http://localhost:${PORT}`)
   console.log(`📝 API documentation: http://localhost:${PORT}/docs (coming soon)`)
 })

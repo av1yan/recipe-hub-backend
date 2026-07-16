@@ -1,7 +1,7 @@
 {
   "name": "recipihub-backend",
   "version": "1.0.0",
-  "description": "RECIPhub API backend",
+  "description": "recipHub API backend",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
