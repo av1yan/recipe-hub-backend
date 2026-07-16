@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { generateToken } from '../utils/jwt.js'
+import { ApiError } from '../middleware/errorHandler.js'
 
 const prisma = new PrismaClient()
 
@@ -49,7 +50,7 @@ export async function updateUserProfile(
 
   if (typeof data.name === 'string') {
     const name = data.name.trim()
-    if (!name) throw new Error('Name cannot be empty')
+    if (!name) throw new ApiError(400, 'Name cannot be empty')
     updates.name = name
   }
 
@@ -57,12 +58,12 @@ export async function updateUserProfile(
     const username = data.username.trim()
     if (username) {
       if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) {
-        throw new Error('Username must be 3-20 characters: letters, numbers, underscore or dot')
+        throw new ApiError(400, 'Username must be 3–20 characters: letters, numbers, _ or .')
       }
       const taken = await prisma.user.findFirst({
         where: { username, NOT: { id: userId } },
       })
-      if (taken) throw new Error('That username is already taken')
+      if (taken) throw new ApiError(409, 'That username is already taken')
       updates.username = username
     } else {
       updates.username = null // allow clearing it
