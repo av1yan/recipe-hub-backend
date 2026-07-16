@@ -12,7 +12,9 @@ const app = express()
 const PORT = process.env.PORT || 5000
 
 app.use(cors())
-app.use(express.json())
+// Recipe photos are stored inline as compressed data URLs, which exceed the
+// default 100kb body limit.
+app.use(express.json({ limit: '6mb' }))
 
 // Routes
 app.use('/api/auth', authRoutes)
