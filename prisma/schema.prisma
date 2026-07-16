@@ -1,9 +1,12 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -22,8 +25,6 @@ model User {
   cookbooks     Cookbook[]
   savedRecipes  SavedRecipe[]
   ratings       RecipeRating[]
-
-  @@index([email])
 }
 
 model Recipe {
@@ -32,10 +33,10 @@ model Recipe {
   name          String
   description   String?
   cuisine       String
-  mealType      String     // breakfast, lunch, dinner, snack
-  difficulty    String     // easy, medium, hard
-  prepTime      Int        // minutes
-  cookTime      Int        // minutes
+  mealType      String
+  difficulty    String
+  prepTime      Int
+  cookTime      Int
   servings      Int
   calories      Int?
   imageUrl      String?
@@ -54,10 +55,6 @@ model Recipe {
   mealPlanRecipes MealPlanRecipe[]
   cookbookRecipes CookbookRecipe[]
   groceryItems  GroceryItem[]
-
-  @@index([userId])
-  @@index([cuisine])
-  @@index([mealType])
 }
 
 model Ingredient {
@@ -65,13 +62,11 @@ model Ingredient {
   recipeId      String
   name          String
   quantity      Float
-  unit          String     // cups, tbsp, grams, oz, etc.
+  unit          String
   createdAt     DateTime   @default(now())
 
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
   groceryItems  GroceryItem[]
-
-  @@index([recipeId])
 }
 
 model Instruction {
@@ -79,23 +74,21 @@ model Instruction {
   recipeId      String
   stepNumber    Int
   text          String
-  duration      Int?       // minutes
+  duration      Int?
   createdAt     DateTime   @default(now())
 
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-
-  @@index([recipeId])
 }
 
 model Nutrition {
   id            String     @id @default(cuid())
   recipeId      String     @unique
   calories      Int
-  protein       Int        // grams
-  carbs         Int        // grams
-  fat           Int        // grams
-  fiber         Int?       // grams
-  allergens     String?    // comma-separated
+  protein       Int
+  carbs         Int
+  fat           Int
+  fiber         Int?
+  allergens     String?
 
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 }
@@ -106,9 +99,6 @@ model RecipeTag {
   tag           String
 
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-
-  @@index([recipeId])
-  @@index([tag])
 }
 
 model SavedRecipe {
@@ -121,23 +111,19 @@ model SavedRecipe {
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, recipeId])
-  @@index([userId])
-  @@index([recipeId])
 }
 
 model RecipeRating {
   id            String     @id @default(cuid())
   userId        String
   recipeId      String
-  rating        Int        // 1-5
+  rating        Int
   ratedAt       DateTime   @default(now())
 
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, recipeId])
-  @@index([userId])
-  @@index([recipeId])
 }
 
 model MealPlan {
@@ -150,24 +136,19 @@ model MealPlan {
 
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   meals         MealPlanRecipe[]
-
-  @@index([userId])
-  @@index([weekStart])
 }
 
 model MealPlanRecipe {
   id            String     @id @default(cuid())
   mealPlanId    String
   recipeId      String
-  day           String     // Monday, Tuesday, etc.
-  mealType      String     // breakfast, lunch, dinner, snack
+  day           String
+  mealType      String
 
   mealPlan      MealPlan   @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@unique([mealPlanId, day, mealType])
-  @@index([mealPlanId])
-  @@index([recipeId])
 }
 
 model GroceryList {
@@ -179,8 +160,6 @@ model GroceryList {
 
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   items         GroceryItem[]
-
-  @@index([userId])
 }
 
 model GroceryItem {
@@ -191,17 +170,13 @@ model GroceryItem {
   name          String
   quantity      Float
   unit          String
-  category      String     // Produce, Dairy, Meat, etc.
+  category      String
   checked       Boolean    @default(false)
   createdAt     DateTime   @default(now())
 
   groceryList   GroceryList @relation(fields: [groceryListId], references: [id], onDelete: Cascade)
   ingredient    Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
   recipe        Recipe?    @relation(fields: [recipeId], references: [id], onDelete: SetNull)
-
-  @@index([groceryListId])
-  @@index([ingredientId])
-  @@index([recipeId])
 }
 
 model Cookbook {
@@ -215,8 +190,6 @@ model Cookbook {
 
   user          User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   recipes       CookbookRecipe[]
-
-  @@index([userId])
 }
 
 model CookbookRecipe {
@@ -228,6 +201,4 @@ model CookbookRecipe {
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@unique([cookbookId, recipeId])
-  @@index([cookbookId])
-  @@index([recipeId])
 }
