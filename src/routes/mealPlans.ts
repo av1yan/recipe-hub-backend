@@ -5,6 +5,7 @@ import {
   listMealPlans,
   addMealToMealPlan,
   removeMealFromMealPlan,
+  deleteMealPlan,
 } from '../services/mealPlanService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
@@ -57,6 +58,15 @@ router.post('/:id/meals', authMiddleware, async (req: Request, res: Response, ne
 router.delete('/meals/:mealId', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     await removeMealFromMealPlan(req.user!.userId, req.params.mealId)
+    res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await deleteMealPlan(req.user!.userId, req.params.id)
     res.json({ success: true })
   } catch (err) {
     next(err)

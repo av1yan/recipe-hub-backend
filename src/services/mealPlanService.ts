@@ -82,6 +82,16 @@ export async function addMealToMealPlan(
   })
 }
 
+export async function deleteMealPlan(userId: string, id: string) {
+  const plan = await prisma.mealPlan.findFirst({ where: { id, userId } })
+  if (!plan) {
+    throw new Error('Meal plan not found')
+  }
+  // Remove the plan's meals first so the delete succeeds regardless of cascade config.
+  await prisma.mealPlanRecipe.deleteMany({ where: { mealPlanId: id } })
+  return prisma.mealPlan.delete({ where: { id } })
+}
+
 export async function removeMealFromMealPlan(userId: string, mealId: string) {
   const meal = await prisma.mealPlanRecipe.findUnique({
     where: { id: mealId },
