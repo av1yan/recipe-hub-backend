@@ -37,6 +37,38 @@ export async function loginUser(email: string, password: string) {
 export async function getUserProfile(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, avatar: true, createdAt: true },
+    select: { id: true, email: true, name: true, username: true, avatar: true, createdAt: true },
   })
+}
+
+export async function updateUserProfile(
+  userId: string,
+  data: { name?: string; username?: string | null }
+) {
+  const updates: { name?: string; username?: string | null } = {}
+
+  if (typeof data.name === 'string') {
+    const name = data.name.trim()
+    if (!name) throw new Error('Name cannot be empty')
+    updates.name = name
+  }
+
+  if (typeof data.username === 'string') {
+    const username = data.username.trim()
+    if (username) {
+      if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) {
+        throw new Error('Username must be 3-20 characters: letters, numbers, underscore or dot')
+      }
+      const taken = await prisma.user.findFirst({
+        where: { username, NOT: { id: userId } },
+      })
+      if (taken) throw new Error('That username is already taken')
+      updates.username = username
+    } else {
+      updates.username = null // allow clearing it
+    }
+  }
+
+  await prisma.user.update({ where: { id: userId }, data: updates })
+  return getUserProfile(userId)
 }
