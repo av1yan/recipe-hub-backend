@@ -9,7 +9,7 @@ import {
   unsaveRecipe,
   getSavedRecipes,
 } from '../services/recipeService.js'
-import { importFromUrl, importFromText } from '../services/importService.js'
+import { importFromUrl, importFromText, fetchSocialCaption } from '../services/importService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
 
@@ -22,6 +22,17 @@ router.post('/import/url', authMiddleware, async (req: Request, res: Response, n
     const { url } = req.body
     if (!url) throw new ApiError(400, 'Paste a link to import')
     res.json(await importFromUrl(String(url)))
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/import/social', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { url } = req.body
+    if (!url) throw new ApiError(400, 'Paste a link to import')
+    // Returns the caption to lay out, not a recipe -- see fetchSocialCaption.
+    res.json(await fetchSocialCaption(String(url)))
   } catch (err) {
     next(err)
   }

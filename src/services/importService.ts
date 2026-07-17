@@ -125,11 +125,20 @@ function parseYield(value: unknown): number {
  * ingredient, so anything unrecognised becomes quantity 1 / unit "" and keeps
  * its full text as the name.
  */
+// An unrecognised unit is not dropped -- it gets glued into the name instead
+// ("2 pints tomato" became quantity 2 of "pints tomato"), so this list wants to
+// be generous.
 const UNITS = [
   'g', 'kg', 'mg', 'ml', 'l', 'oz', 'lb', 'lbs', 'cup', 'cups', 'tbsp', 'tsp',
   'tablespoon', 'tablespoons', 'teaspoon', 'teaspoons', 'clove', 'cloves',
-  'can', 'cans', 'tin', 'tins', 'pinch', 'handful', 'slice', 'slices',
-  'sprig', 'sprigs', 'stick', 'sticks', 'piece', 'pieces', 'whole', 'bunch',
+  'can', 'cans', 'tin', 'tins', 'pinch', 'pinches', 'handful', 'handfuls',
+  'slice', 'slices', 'sprig', 'sprigs', 'stick', 'sticks', 'piece', 'pieces',
+  'whole', 'bunch', 'bunches', 'pint', 'pints', 'quart', 'quarts',
+  'gallon', 'gallons', 'litre', 'litres', 'liter', 'liters',
+  'dash', 'dashes', 'knob', 'knobs', 'bag', 'bags', 'jar', 'jars',
+  'packet', 'packets', 'pack', 'packs', 'head', 'heads', 'stalk', 'stalks',
+  'fillet', 'fillets', 'rasher', 'rashers', 'sheet', 'sheets', 'cube', 'cubes',
+  'block', 'blocks', 'drop', 'drops', 'strip', 'strips', 'wedge', 'wedges',
 ]
 
 const VULGAR: Record<string, number> = {
@@ -202,6 +211,12 @@ export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
     throw new ApiError(400, 'Only http and https links can be imported')
   }
 
+  // Social posts keep the recipe in the caption rather than in structured
+  // data, so they go through fetchSocialCaption instead of this page reader.
+  if (/(^|\.)(tiktok|instagram|facebook)\.com$/.test(url.hostname)) {
+    throw new ApiError(400, 'Use "Import from social media" for that link')
+  }
+
   let res: Response
   try {
     res = await fetch(url.toString(), {
@@ -256,6 +271,87 @@ export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
   }
 
   return draftFromSchema(node, url.toString())
+}
+
+export interface SocialCaption {
+  caption: string
+  imageUrl: string | null
+  sourceUrl: string
+  author: string | null
+}
+
+/**
+ * Fetches a TikTok post's caption through its public oEmbed endpoint.
+ *
+ * Returns the caption rather than a parsed recipe, because oEmbed flattens the
+ * caption's line breaks: paragraph breaks survive as runs of spaces, but the
+ * single newlines between ingredients come back as ordinary spaces, which no
+ * amount of guessing can tell from the gaps between words. Splitting
+ * "2 pints tomato 1 shallot 1/2 cup olive oil Salt Thyme" back apart produces
+ * junk — "1/" and "2 cup olive oil Salt Thyme" — so the caption goes to the
+ * person to lay out, and the parser runs on what they hand back.
+ *
+ * Instagram and Facebook have no equivalent open endpoint, so only TikTok is
+ * here.
+ */
+export async function fetchSocialCaption(rawUrl: string): Promise<SocialCaption> {
+  let url: URL
+  try {
+    url = new URL(rawUrl.trim())
+  } catch {
+    throw new ApiError(400, "That doesn't look like a web address")
+  }
+
+  if (/(^|\.)instagram\.com$/.test(url.hostname)) {
+    throw new ApiError(
+      422,
+      'Instagram only gives captions to apps it has approved, so its links cannot be read automatically. Copy the caption and paste it below.'
+    )
+  }
+  if (/(^|\.)facebook\.com$/.test(url.hostname)) {
+    throw new ApiError(
+      422,
+      'Facebook only gives posts to apps it has approved, so its links cannot be read automatically. Copy the post and paste it below.'
+    )
+  }
+  if (!/(^|\.)tiktok\.com$/.test(url.hostname)) {
+    throw new ApiError(400, 'Paste a TikTok link, or use "Import from web" for a recipe page')
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url.toString())}`, {
+      signal: AbortSignal.timeout(12_000),
+    })
+  } catch {
+    throw new ApiError(502, "TikTok didn't respond. Try again, or paste the caption below.")
+  }
+  if (!res.ok) {
+    throw new ApiError(
+      422,
+      'TikTok would not share that post — it may be private or removed. Copy the caption and paste it below.'
+    )
+  }
+
+  const data = (await res.json().catch(() => ({}))) as any
+  // Only collapse the runs oEmbed left behind, and put a line break where each
+  // one was — that is the last of the caption's shape still standing.
+  const caption = String(data.title || '')
+    .split(/\s{2,}/)
+    .map(s => s.trim())
+    .filter(Boolean)
+    .join('\n')
+
+  if (!caption) {
+    throw new ApiError(422, 'That post has no caption to read. Paste the recipe below instead.')
+  }
+
+  return {
+    caption,
+    imageUrl: data.thumbnail_url ? String(data.thumbnail_url) : null,
+    sourceUrl: url.toString(),
+    author: data.author_name ? String(data.author_name) : null,
+  }
 }
 
 function draftFromSchema(node: any, sourceUrl: string): RecipeDraft {
