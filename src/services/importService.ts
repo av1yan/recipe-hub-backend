@@ -220,7 +220,12 @@ export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
     throw new ApiError(502, "That site didn't respond. Try again, or paste the recipe as text.")
   }
 
-  if (res.status === 403 || res.status === 401) {
+  // Bot protection answers with whatever it likes: 403 and 401, but also 402
+  // and 429. Observed live from this server, allrecipes gives 403 or 402 on
+  // different days and seriouseats gives 402 — none of which mean what their
+  // names suggest, so they all get the one message a person can act on rather
+  // than "returned 402".
+  if ([401, 402, 403, 429].includes(res.status)) {
     throw new ApiError(
       422,
       `${url.hostname} blocks automated readers. Copy the recipe text and use "Import from text" instead.`
