@@ -20,15 +20,26 @@ export async function registerUser(email: string, name: string, password: string
   return { user: { id: user.id, email: user.email, name: user.name }, token }
 }
 
-export async function loginUser(email: string, password: string) {
-  const user = await prisma.user.findUnique({ where: { email } })
+/**
+ * Signs in with either an email address or a username.
+ *
+ * Usernames are stored as entered but compared case-insensitively, so someone
+ * who registered "Chef_Demo" can still sign in typing "chef_demo". Emails were
+ * already stored lowercase.
+ */
+export async function loginUser(identifier: string, password: string) {
+  const id = identifier.trim()
+  const user = id.includes('@')
+    ? await prisma.user.findUnique({ where: { email: id.toLowerCase() } })
+    : await prisma.user.findFirst({ where: { username: { equals: id, mode: 'insensitive' } } })
+
   if (!user) {
-    throw new Error('Invalid credentials')
+    throw new ApiError(401, 'Invalid credentials')
   }
 
   const valid = await verifyPassword(password, user.passwordHash)
   if (!valid) {
-    throw new Error('Invalid credentials')
+    throw new ApiError(401, 'Invalid credentials')
   }
 
   const token = generateToken({ userId: user.id, email: user.email })

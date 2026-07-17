@@ -20,11 +20,14 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
 
 router.post('/login', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { email, password } = req.body
-    if (!email || !password) {
-      throw new ApiError(400, 'Missing email or password')
+    // `identifier` is an email or a username. `email` is still accepted so any
+    // older client keeps working.
+    const { identifier, email, password } = req.body
+    const login = identifier ?? email
+    if (!login || !password) {
+      throw new ApiError(400, 'Missing email/username or password')
     }
-    const result = await loginUser(email, password)
+    const result = await loginUser(login, password)
     res.json(result)
   } catch (err) {
     next(err)
