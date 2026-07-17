@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { ApiError } from '../middleware/errorHandler.js'
 
 const prisma = new PrismaClient()
 
@@ -21,6 +22,16 @@ export async function listCookbooks(userId: string) {
     where: { userId },
     include: { recipes: { include: { recipe: true } } },
   })
+}
+
+/**
+ * Deletes a cookbook, not the recipes in it. CookbookRecipe cascades on the
+ * cookbook, so the links go and the recipes stay where they are.
+ */
+export async function deleteCookbook(userId: string, id: string) {
+  // Scoped by userId so an id alone cannot delete someone else's cookbook.
+  const { count } = await prisma.cookbook.deleteMany({ where: { id, userId } })
+  if (count === 0) throw new ApiError(404, 'Cookbook not found')
 }
 
 export async function addRecipeToCookbook(userId: string, cookbookId: string, recipeId: string) {

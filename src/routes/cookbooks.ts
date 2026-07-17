@@ -5,6 +5,7 @@ import {
   listCookbooks,
   addRecipeToCookbook,
   removeRecipeFromCookbook,
+  deleteCookbook,
 } from '../services/cookbookService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
@@ -37,6 +38,15 @@ router.get('/', authMiddleware, async (req: Request, res: Response, next: NextFu
   try {
     const cookbooks = await listCookbooks(req.user!.userId)
     res.json(cookbooks)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.delete('/:id', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await deleteCookbook(req.user!.userId, req.params.id)
+    res.json({ ok: true })
   } catch (err) {
     next(err)
   }
