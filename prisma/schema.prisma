@@ -29,6 +29,22 @@ model User {
   cookbooks     Cookbook[]
   savedRecipes  SavedRecipe[]
   ratings       RecipeRating[]
+  resetTokens   PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id         String    @id @default(cuid())
+  // The SHA-256 of the token, never the token itself: anyone reading this table
+  // must not be able to seize an account with what they find.
+  tokenHash  String    @unique
+  userId     String
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Recipe {

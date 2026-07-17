@@ -8,6 +8,8 @@ import {
   isConfigured,
   type Provider,
 } from '../services/oauthService.js'
+import { requestPasswordReset, resetPassword } from '../services/passwordResetService.js'
+import { isEmailConfigured } from '../services/emailService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
 
@@ -120,6 +122,31 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     }
     const result = await loginUser(login, password)
     res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Whether reset links can actually be sent, so the UI need not offer a dead link.
+router.get('/password-reset/available', (_req: Request, res: Response) => {
+  res.json({ available: isEmailConfigured() })
+})
+
+router.post('/forgot-password', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await requestPasswordReset(String(req.body?.email || ''))
+    // Deliberately the same answer whether or not the account exists.
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/reset-password', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token, password } = req.body || {}
+    await resetPassword(String(token || ''), String(password || ''))
+    res.json({ ok: true })
   } catch (err) {
     next(err)
   }
