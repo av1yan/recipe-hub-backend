@@ -23,7 +23,10 @@ export async function getMealPlan(userId: string, id: string) {
       if (!acc[meal.day]) {
         acc[meal.day] = {}
       }
-      acc[meal.day][meal.mealType] = meal.recipe
+      // Carry the link's own id through. Flattening to just the recipe threw
+      // it away, and without it nothing can say which meal to remove -- a
+      // recipe id is not enough, the same recipe can sit in several slots.
+      acc[meal.day][meal.mealType] = { ...meal.recipe, mealId: meal.id }
       return acc
     },
     {} as Record<string, Record<string, any>>
@@ -49,7 +52,7 @@ export async function listMealPlans(userId: string) {
         if (!acc[meal.day]) {
           acc[meal.day] = {}
         }
-        acc[meal.day][meal.mealType] = meal.recipe
+        acc[meal.day][meal.mealType] = { ...meal.recipe, mealId: meal.id }
         return acc
       },
       {} as Record<string, Record<string, any>>
