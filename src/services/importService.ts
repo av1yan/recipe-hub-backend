@@ -455,7 +455,10 @@ export function importFromText(raw: string): RecipeDraft {
     .filter(i => i.name)
 
   const instructions = stepLines
-    .map(l => l.replace(/^\s*(?:step\s*)?\d+[.)]\s*/i, '').trim())
+    // Strip "1." / "Step 2)" and bullet markers. Ingredients already lost their
+    // bullets in parseIngredient; steps kept theirs, so a bulleted method came
+    // through as "- Whisk the mustard…".
+    .map(l => l.replace(/^\s*(?:step\s*)?\d+[.)]\s*/i, '').replace(/^\s*[-*•–—]\s*/, '').trim())
     .filter(l => l.length > 2)
     .map(text => ({ text }))
 
