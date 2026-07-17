@@ -305,13 +305,13 @@ export async function fetchSocialCaption(rawUrl: string): Promise<SocialCaption>
   if (/(^|\.)instagram\.com$/.test(url.hostname)) {
     throw new ApiError(
       422,
-      'Instagram only gives captions to apps it has approved, so its links cannot be read automatically. Copy the caption and paste it below.'
+      'Instagram only gives captions to apps it has approved, so its links cannot be read automatically. Copy the caption and use "Import from text".'
     )
   }
   if (/(^|\.)facebook\.com$/.test(url.hostname)) {
     throw new ApiError(
       422,
-      'Facebook only gives posts to apps it has approved, so its links cannot be read automatically. Copy the post and paste it below.'
+      'Facebook only gives posts to apps it has approved, so its links cannot be read automatically. Copy the post and use "Import from text".'
     )
   }
   if (!/(^|\.)tiktok\.com$/.test(url.hostname)) {
@@ -324,12 +324,12 @@ export async function fetchSocialCaption(rawUrl: string): Promise<SocialCaption>
       signal: AbortSignal.timeout(12_000),
     })
   } catch {
-    throw new ApiError(502, "TikTok didn't respond. Try again, or paste the caption below.")
+    throw new ApiError(502, "TikTok didn't respond. Try again, or use \"Import from text\".")
   }
   if (!res.ok) {
     throw new ApiError(
       422,
-      'TikTok would not share that post — it may be private or removed. Copy the caption and paste it below.'
+      'TikTok would not share that post — it may be private or removed. Copy the caption and use "Import from text".'
     )
   }
 
@@ -343,7 +343,7 @@ export async function fetchSocialCaption(rawUrl: string): Promise<SocialCaption>
     .join('\n')
 
   if (!caption) {
-    throw new ApiError(422, 'That post has no caption to read. Paste the recipe below instead.')
+    throw new ApiError(422, 'That post has no caption to read. Use "Import from text" instead.')
   }
 
   return {
