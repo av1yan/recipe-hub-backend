@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { ApiError } from '../middleware/errorHandler.js'
 
 const prisma = new PrismaClient()
 
@@ -77,18 +78,24 @@ export async function addMealToMealPlan(
   })
 
   if (!mealPlan) {
-    throw new Error('Meal plan not found')
+    throw new ApiError(404, 'Meal plan not found')
   }
 
-  return prisma.mealPlanRecipe.create({
-    data: { mealPlanId, recipeId, day, mealType },
+  // A (day, mealType) slot holds one recipe -- the schema enforces it with
+  // @@unique([mealPlanId, day, mealType]). Adding to a slot that's already
+  // filled must replace what's there; a plain create would hit that constraint
+  // and surface as an opaque 500.
+  return prisma.mealPlanRecipe.upsert({
+    where: { mealPlanId_day_mealType: { mealPlanId, day, mealType } },
+    update: { recipeId },
+    create: { mealPlanId, recipeId, day, mealType },
   })
 }
 
 export async function deleteMealPlan(userId: string, id: string) {
   const plan = await prisma.mealPlan.findFirst({ where: { id, userId } })
   if (!plan) {
-    throw new Error('Meal plan not found')
+    throw new ApiError(404, 'Meal plan not found')
   }
   // Remove the plan's meals first so the delete succeeds regardless of cascade config.
   await prisma.mealPlanRecipe.deleteMany({ where: { mealPlanId: id } })
@@ -102,7 +109,7 @@ export async function removeMealFromMealPlan(userId: string, mealId: string) {
   })
 
   if (!meal || meal.mealPlan.userId !== userId) {
-    throw new Error('Meal not found')
+    throw new ApiError(404, 'Meal not found')
   }
 
   return prisma.mealPlanRecipe.delete({ where: { id: mealId } })
