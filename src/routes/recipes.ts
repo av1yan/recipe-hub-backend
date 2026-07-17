@@ -9,10 +9,33 @@ import {
   unsaveRecipe,
   getSavedRecipes,
 } from '../services/recipeService.js'
+import { importFromUrl, importFromText } from '../services/importService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
 
 const router = Router()
+
+// Imports return a draft for review; they never save anything on their own.
+// Both sit above /:id so those words aren't read as recipe ids.
+router.post('/import/url', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { url } = req.body
+    if (!url) throw new ApiError(400, 'Paste a link to import')
+    res.json(await importFromUrl(String(url)))
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/import/text', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { text } = req.body
+    if (!text) throw new ApiError(400, 'Paste the recipe text to import')
+    res.json(importFromText(String(text)))
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.post('/', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
