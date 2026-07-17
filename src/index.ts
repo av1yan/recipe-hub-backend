@@ -15,6 +15,8 @@ app.use(cors())
 // Recipe photos are stored inline as compressed data URLs, which exceed the
 // default 100kb body limit.
 app.use(express.json({ limit: '6mb' }))
+// Apple's sign-in callback arrives as a form POST rather than JSON.
+app.use(express.urlencoded({ extended: false }))
 
 // Routes
 app.use('/api/auth', authRoutes)

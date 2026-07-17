@@ -37,6 +37,14 @@ export async function loginUser(identifier: string, password: string) {
     throw new ApiError(401, 'Invalid credentials')
   }
 
+  // An account created through Google/Apple has no password to check against.
+  // Say so plainly: "invalid credentials" would send them off hunting for a
+  // password that never existed.
+  if (!user.passwordHash) {
+    const via = user.googleId ? 'Google' : 'Apple'
+    throw new ApiError(401, `This account signs in with ${via}`)
+  }
+
   const valid = await verifyPassword(password, user.passwordHash)
   if (!valid) {
     throw new ApiError(401, 'Invalid credentials')

@@ -15,7 +15,10 @@ model User {
   email         String     @unique
   name          String
   username      String?    @unique
-  passwordHash  String
+  // Null for accounts created through Google/Apple, which have no password.
+  passwordHash  String?
+  googleId      String?    @unique
+  appleId       String?    @unique
   avatar        String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
