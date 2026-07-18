@@ -86,21 +86,29 @@ export async function updateRecipe(userId: string, id: string, data: any) {
     throw new Error('Recipe not found')
   }
 
+  // Partial update: only touch fields that were actually sent, so a caller
+  // updating one thing (e.g. nutrition) can't blank out everything else.
+  const updateData: any = {}
+  for (const f of ['name', 'description', 'cuisine', 'mealType', 'difficulty', 'prepTime', 'cookTime', 'servings', 'calories', 'imageUrl', 'userNotes']) {
+    if (data[f] !== undefined) updateData[f] = data[f]
+  }
+
+  if (data.nutrition) {
+    const n = data.nutrition
+    const fields = {
+      calories: n.calories ?? 0,
+      protein: n.protein ?? 0,
+      carbs: n.carbs ?? 0,
+      fat: n.fat ?? 0,
+      fiber: n.fiber ?? null,
+      allergens: n.allergens ?? null,
+    }
+    updateData.nutrition = { upsert: { create: fields, update: fields } }
+  }
+
   return prisma.recipe.update({
     where: { id },
-    data: {
-      name: data.name,
-      description: data.description,
-      cuisine: data.cuisine,
-      mealType: data.mealType,
-      difficulty: data.difficulty,
-      prepTime: data.prepTime,
-      cookTime: data.cookTime,
-      servings: data.servings,
-      calories: data.calories,
-      imageUrl: data.imageUrl,
-      userNotes: data.userNotes,
-    },
+    data: updateData,
     include: {
       ingredients: true,
       instructions: true,
