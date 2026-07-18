@@ -88,14 +88,13 @@ export async function updateGroceryItem(userId: string, itemId: string, checked:
 }
 
 export async function removeGroceryItem(userId: string, itemId: string) {
-  const item = await prisma.groceryItem.findUnique({
-    where: { id: itemId },
-    include: { groceryList: true },
+  // Scope the delete to the caller's own lists and use deleteMany so a missing
+  // or already-removed id is a harmless no-op rather than a 500. Deleting is
+  // idempotent — the goal state is "item gone" — which keeps double-taps, stale
+  // rows, and races from throwing (the old findUnique + throw turned all of
+  // those into "Internal server error").
+  const result = await prisma.groceryItem.deleteMany({
+    where: { id: itemId, groceryList: { userId } },
   })
-
-  if (!item || item.groceryList.userId !== userId) {
-    throw new Error('Item not found')
-  }
-
-  return prisma.groceryItem.delete({ where: { id: itemId } })
+  return { deleted: result.count > 0 }
 }
