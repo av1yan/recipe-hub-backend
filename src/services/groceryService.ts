@@ -24,6 +24,12 @@ export async function listGroceryLists(userId: string) {
   })
 }
 
+// Two lines are "the same item" when their names match case-insensitively
+// (after trimming) and they share a unit. Used to fold repeat adds into one row.
+function itemKey(name: string, unit: string): string {
+  return `${(name || '').trim().toLowerCase()}|${(unit || '').trim().toLowerCase()}`
+}
+
 export async function addItemToGroceryList(
   userId: string,
   listId: string,
@@ -31,10 +37,25 @@ export async function addItemToGroceryList(
 ) {
   const list = await prisma.groceryList.findFirst({
     where: { id: listId, userId },
+    include: { items: true },
   })
 
   if (!list) {
     throw new Error('Grocery list not found')
+  }
+
+  // Fold a repeat add into the existing line instead of piling up duplicate
+  // rows ("Potato" + "potato" -> Potato x2). Only merge into a still-unchecked
+  // line: a checked item is "already bought", so a fresh need starts its own row.
+  const match = list.items.find(
+    (i) => !i.checked && itemKey(i.name, i.unit) === itemKey(item.name, item.unit)
+  )
+
+  if (match) {
+    return prisma.groceryItem.update({
+      where: { id: match.id },
+      data: { quantity: match.quantity + (item.quantity ?? 1) },
+    })
   }
 
   return prisma.groceryItem.create({
