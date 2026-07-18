@@ -56,7 +56,7 @@ export async function getRecipe(id: string) {
 }
 
 export async function listRecipes(userId: string, filters?: any) {
-  return prisma.recipe.findMany({
+  const recipes = await prisma.recipe.findMany({
     where: {
       userId,
       ...(filters?.cuisine && { cuisine: filters.cuisine }),
@@ -67,10 +67,14 @@ export async function listRecipes(userId: string, filters?: any) {
       ingredients: true,
       instructions: true,
       nutrition: true,
+      // Just this user's save row, so each recipe can carry its own
+      // favorite state instead of the client having to guess.
+      savedBy: { where: { userId }, select: { id: true } },
     },
     take: filters?.limit || 20,
     skip: filters?.offset || 0,
   })
+  return recipes.map(({ savedBy, ...r }) => ({ ...r, isFavorite: savedBy.length > 0 }))
 }
 
 export async function updateRecipe(userId: string, id: string, data: any) {
@@ -119,14 +123,18 @@ export async function deleteRecipe(userId: string, id: string) {
 }
 
 export async function saveRecipe(userId: string, recipeId: string) {
-  return prisma.savedRecipe.create({
-    data: { userId, recipeId },
+  // Idempotent: favoriting something already favorited is a no-op, not a 500.
+  return prisma.savedRecipe.upsert({
+    where: { userId_recipeId: { userId, recipeId } },
+    create: { userId, recipeId },
+    update: {},
   })
 }
 
 export async function unsaveRecipe(userId: string, recipeId: string) {
-  return prisma.savedRecipe.delete({
-    where: { userId_recipeId: { userId, recipeId } },
+  // deleteMany so un-favoriting something not saved is a no-op, not a P2025.
+  return prisma.savedRecipe.deleteMany({
+    where: { userId, recipeId },
   })
 }
 
