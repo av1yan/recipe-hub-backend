@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { ApiError } from '../middleware/errorHandler.js'
-
-const prisma = new PrismaClient()
 
 export async function createCookbook(userId: string, name: string, description?: string) {
   return prisma.cookbook.create({

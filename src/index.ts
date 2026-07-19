@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import 'dotenv/config'
 import { errorHandler } from './middleware/errorHandler.js'
+import { prisma } from './lib/prisma.js'
 import authRoutes from './routes/auth.js'
 import recipeRoutes from './routes/recipes.js'
 import mealPlanRoutes from './routes/mealPlans.js'
@@ -83,7 +84,22 @@ app.post('/api/init-db', async (req, res) => {
 // Error handler
 app.use(errorHandler)
 
+// Keep the shared DB connection pool warm. An idle Postgres connection can be
+// dropped, and the first request after a quiet spell then cold-starts -- which
+// surfaced as an occasional 500 on the first login. Ping on boot (also connects
+// the pool eagerly) and every few minutes after. Override with KEEP_WARM_MS.
+const KEEP_WARM_MS = Number(process.env.KEEP_WARM_MS) || 4 * 60 * 1000
+async function keepWarm() {
+  try {
+    await prisma.$queryRaw`SELECT 1`
+  } catch (err) {
+    console.error('keep-warm ping failed:', err)
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`🚀 recipHub API running on http://localhost:${PORT}`)
   console.log(`📝 API documentation: http://localhost:${PORT}/docs (coming soon)`)
+  keepWarm()
+  setInterval(keepWarm, KEEP_WARM_MS)
 })

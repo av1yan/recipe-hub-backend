@@ -10,11 +10,9 @@
 // credentials only the account owner can create. See docs/oauth-setup.md.
 
 import { createRemoteJWKSet, jwtVerify, SignJWT, importPKCS8 } from 'jose'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { generateToken } from '../utils/jwt.js'
 import { ApiError } from '../middleware/errorHandler.js'
-
-const prisma = new PrismaClient()
 
 export type Provider = 'google' | 'apple'
 

@@ -1,9 +1,7 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { hashPassword, verifyPassword } from '../utils/password.js'
 import { generateToken } from '../utils/jwt.js'
 import { ApiError } from '../middleware/errorHandler.js'
-
-const prisma = new PrismaClient()
 
 export async function registerUser(email: string, name: string, password: string) {
   const existing = await prisma.user.findUnique({ where: { email } })

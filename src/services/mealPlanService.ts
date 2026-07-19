@@ -1,7 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { ApiError } from '../middleware/errorHandler.js'
-
-const prisma = new PrismaClient()
 
 export async function createMealPlan(userId: string, weekStart: Date, name?: string) {
   return prisma.mealPlan.create({

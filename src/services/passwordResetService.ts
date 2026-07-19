@@ -7,12 +7,10 @@
 //   - using a reset drops the account's other outstanding tokens
 
 import crypto from 'node:crypto'
-import { PrismaClient } from '@prisma/client'
+import { prisma } from '../lib/prisma.js'
 import { hashPassword } from '../utils/password.js'
 import { ApiError } from '../middleware/errorHandler.js'
 import { sendPasswordResetEmail } from './emailService.js'
-
-const prisma = new PrismaClient()
 
 const TOKEN_TTL_MINUTES = 60
 
