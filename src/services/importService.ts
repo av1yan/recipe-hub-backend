@@ -200,13 +200,31 @@ function parseAmount(s: string): number {
  * is dressed up. The error says which, rather than pretending the page had no
  * recipe on it.
  */
-export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
+/**
+ * People routinely paste URLs with no scheme -- "www.tiktok.com/..." or
+ * "allrecipes.com/recipe/...". new URL() rejects those outright, which is what
+ * surfaced as "That doesn't look like a web address" for perfectly good links.
+ * Prepend https:// when there's no scheme, then validate.
+ */
+function toUrl(rawUrl: string): URL {
+  const raw = rawUrl.trim()
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : 'https://' + raw
   let url: URL
   try {
-    url = new URL(rawUrl.trim())
+    url = new URL(candidate)
   } catch {
     throw new ApiError(400, "That doesn't look like a web address")
   }
+  // A bare word ("hello") becomes a technically-valid URL with no dot in the
+  // host -- not a real site, so reject it rather than fetching nothing.
+  if (!url.hostname.includes('.')) {
+    throw new ApiError(400, "That doesn't look like a web address")
+  }
+  return url
+}
+
+export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
+  const url = toUrl(rawUrl)
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new ApiError(400, 'Only http and https links can be imported')
   }
@@ -295,12 +313,7 @@ export interface SocialCaption {
  * here.
  */
 export async function fetchSocialCaption(rawUrl: string): Promise<SocialCaption> {
-  let url: URL
-  try {
-    url = new URL(rawUrl.trim())
-  } catch {
-    throw new ApiError(400, "That doesn't look like a web address")
-  }
+  const url = toUrl(rawUrl)
 
   if (/(^|\.)instagram\.com$/.test(url.hostname)) {
     throw new ApiError(
