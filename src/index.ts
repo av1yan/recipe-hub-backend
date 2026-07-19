@@ -88,7 +88,10 @@ app.use(errorHandler)
 // dropped, and the first request after a quiet spell then cold-starts -- which
 // surfaced as an occasional 500 on the first login. Ping on boot (also connects
 // the pool eagerly) and every few minutes after. Override with KEEP_WARM_MS.
-const KEEP_WARM_MS = Number(process.env.KEEP_WARM_MS) || 4 * 60 * 1000
+// 60s -- the idle connection can be reaped in under a couple of minutes, so
+// ping well inside that window. The retry middleware (lib/prisma.ts) is the
+// backstop for anything that still slips through.
+const KEEP_WARM_MS = Number(process.env.KEEP_WARM_MS) || 60 * 1000
 async function keepWarm() {
   try {
     await prisma.$queryRaw`SELECT 1`
