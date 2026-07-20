@@ -83,7 +83,27 @@ router.post('/adapt', authMiddleware, async (req: Request, res: Response, next: 
   }
 })
 
-// AI cook: suggest dishes the person could make from their pantry.
+// Turn the model's "Dish name :: how to make it" lines into structured tiles.
+// Tolerant of stray numbering/bullets and a couple of alternative separators.
+function parseCookDishes(text: string): { name: string; steps: string }[] {
+  return text
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, ''))
+    .map(l => {
+      let sep = l.indexOf('::')
+      let width = 2
+      if (sep === -1) { sep = l.indexOf(' — '); width = 3 }
+      if (sep === -1) { sep = l.indexOf(' - '); width = 3 }
+      if (sep === -1) return { name: l, steps: '' }
+      return { name: l.slice(0, sep).trim(), steps: l.slice(sep + width).trim() }
+    })
+    .filter(d => d.name)
+}
+
+// AI cook: suggest dishes the person could make from their pantry, each with a
+// short how-to, returned as tiles.
 router.post('/cook', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const pantry = req.body?.pantry
@@ -92,11 +112,17 @@ router.post('/cook', authMiddleware, async (req: Request, res: Response, next: N
     const prompt =
       'You are a resourceful home cook. Assume basic salt, pepper, oil and water are on hand. ' +
       'From only these ingredients, suggest 3-4 specific dishes the person could make right now. ' +
-      'One line each: the dish name, then a short 4-8 word note. No preamble, no markdown, no ' +
-      'numbering.\n\nIngredients: ' + pantry.join(', ')
+      'Put each dish on its own line in exactly this form: "Dish name :: a short instruction of ' +
+      'one or two sentences on how to make it". No preamble, no numbering, no markdown.\n\n' +
+      'Ingredients: ' + pantry.join(', ')
 
-    const out = await callClaude(prompt, 400)
-    if (out.ok) return res.json({ configured: true, text: out.text })
+    const out = await callClaude(prompt, 700)
+    if (out.ok) {
+      const dishes = parseCookDishes(out.text)
+      // `text` stays a clean joined string so any older client still renders.
+      const text = dishes.map(d => (d.steps ? `${d.name} — ${d.steps}` : d.name)).join('\n')
+      return res.json({ configured: true, dishes, text })
+    }
     if (!out.configured) return res.json({ configured: false, message: 'The AI cook turns on once an ANTHROPIC_API_KEY is set on the backend.' })
     return res.status(out.status || 502).json({ error: out.error })
   } catch (err) {
