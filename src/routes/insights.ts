@@ -37,21 +37,44 @@ async function callClaude(prompt: string, maxTokens = 500):
   return { ok: true, text }
 }
 
-// Natural-language insights over the week the client sends.
+// Split the model's reply into separate tips. Prefers a JSON array; falls back
+// to line- then sentence-splitting so a plain-text reply still reads cleanly.
+function parseInsightPoints(text: string): string[] {
+  let t = text.trim()
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence) t = fence[1].trim()
+  try {
+    const arr = JSON.parse(t)
+    if (Array.isArray(arr)) {
+      const pts = arr.map((x: any) => String(x).trim()).filter(Boolean)
+      if (pts.length) return pts
+    }
+  } catch { /* not JSON — fall through */ }
+  const byLine = t.split('\n').map(l => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim()).filter(Boolean)
+  if (byLine.length > 1) return byLine
+  const sentences = t.match(/[^.!?]+[.!?]+/g)
+  return sentences ? sentences.map(s => s.trim()).filter(Boolean) : (t ? [t] : [])
+}
+
+// Natural-language insights over the week the client sends, returned as separate
+// tips so the client can lay them out as a clean list.
 router.post('/ai', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const summary = req.body?.summary
     if (!summary || typeof summary !== 'object') return res.status(400).json({ error: 'Missing week summary' })
 
     const prompt =
-      'You are a warm, concise meal-planning coach. From the planned week below, ' +
-      'give 3-4 short, specific, actionable insights -- one sentence each, no preamble, ' +
-      'no markdown, no headers, no numbering. Focus on calorie/nutrition balance versus ' +
-      'their goal, variety, and using what they already have. Be encouraging.\n\n' +
+      'You are a warm, concise meal-planning coach. From the planned week below, give 3-4 short, ' +
+      'specific, actionable tips. Respond with ONLY a JSON array of strings (no markdown, no prose ' +
+      'outside it), one tip per element, each one or two sentences. Focus on calorie/nutrition ' +
+      'balance versus their goal, variety, and using what they already have. Be encouraging.\n\n' +
       JSON.stringify(summary)
 
     const out = await callClaude(prompt)
-    if (out.ok) return res.json({ configured: true, text: out.text })
+    if (out.ok) {
+      const points = parseInsightPoints(out.text)
+      return res.json({ configured: true, points, text: points.join('\n\n') })
+    }
     if (!out.configured) return res.json({ configured: false, message: 'AI insights turn on once an ANTHROPIC_API_KEY is set on the backend.' })
     return res.status(out.status || 502).json({ error: out.error })
   } catch (err) {
