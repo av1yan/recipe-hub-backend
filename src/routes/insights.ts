@@ -59,7 +59,31 @@ router.post('/ai', authMiddleware, async (req: Request, res: Response, next: Nex
   }
 })
 
-// AI cooking assistant: adapt a recipe to a goal (dairy-free, gluten-free, etc.).
+// Pull a readable summary and a full adapted recipe out of the model's JSON.
+// Falls back to plain text (no structured recipe to save) if it isn't valid JSON.
+function parseAdapted(text: string): {
+  summary: string
+  adapted: { name: string; ingredients: string[]; instructions: string[] } | null
+} {
+  let t = text.trim()
+  const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence) t = fence[1].trim()
+  try {
+    const obj: any = JSON.parse(t)
+    const name = typeof obj?.name === 'string' ? obj.name.trim() : ''
+    const ingredients = Array.isArray(obj?.ingredients) ? obj.ingredients.map((x: any) => String(x).trim()).filter(Boolean) : []
+    const instructions = Array.isArray(obj?.instructions) ? obj.instructions.map((x: any) => String(x).trim()).filter(Boolean) : []
+    const summary = typeof obj?.summary === 'string' ? obj.summary.trim() : ''
+    if (name && (ingredients.length || instructions.length)) {
+      return { summary: summary || name, adapted: { name, ingredients, instructions } }
+    }
+    if (summary) return { summary, adapted: null }
+  } catch { /* not JSON — fall through to plain text */ }
+  return { summary: text.trim(), adapted: null }
+}
+
+// AI cooking assistant: adapt a recipe to a goal (dairy-free, gluten-free, etc.),
+// returning a readable summary plus a full adapted recipe the client can save.
 router.post('/adapt', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { recipe, goal } = req.body || {}
@@ -69,13 +93,18 @@ router.post('/adapt', authMiddleware, async (req: Request, res: Response, next: 
 
     const prompt =
       `You are a practical home-cooking assistant. Adapt the recipe below so it is: ${goal}. ` +
-      'Give the specific ingredient swaps (as "X → Y") and any step tweaks. Keep it short and ' +
-      'practical -- a few lines, no preamble, no markdown headers, no numbering. If it already ' +
-      'meets the goal, say so in one line.\n\n' +
+      'Respond with ONLY a JSON object (no markdown fences, no text outside it) with keys: ' +
+      '"summary" (2-4 short plain-text lines naming the key swaps as "X -> Y" and any step tweaks, ' +
+      'lines separated by \\n), "name" (the adapted dish name), "ingredients" (array of strings, the ' +
+      'full adapted ingredient list with amounts), and "instructions" (array of strings, the adapted ' +
+      'steps in order). If it already meets the goal, keep it mostly as-is and say so in the summary.\n\n' +
       JSON.stringify({ name: recipe.name, ingredients: recipe.ingredients, instructions: recipe.instructions })
 
-    const out = await callClaude(prompt, 400)
-    if (out.ok) return res.json({ configured: true, text: out.text })
+    const out = await callClaude(prompt, 1200)
+    if (out.ok) {
+      const { summary, adapted } = parseAdapted(out.text)
+      return res.json({ configured: true, text: summary, adapted })
+    }
     if (!out.configured) return res.json({ configured: false, message: 'The AI cooking assistant turns on once an ANTHROPIC_API_KEY is set on the backend.' })
     return res.status(out.status || 502).json({ error: out.error })
   } catch (err) {
