@@ -64,6 +64,7 @@ router.post('/ai', authMiddleware, async (req: Request, res: Response, next: Nex
 function parseAdapted(text: string): {
   summary: string
   adapted: { name: string; ingredients: string[]; instructions: string[] } | null
+  changed: boolean
 } {
   let t = text.trim()
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i)
@@ -74,12 +75,15 @@ function parseAdapted(text: string): {
     const ingredients = Array.isArray(obj?.ingredients) ? obj.ingredients.map((x: any) => String(x).trim()).filter(Boolean) : []
     const instructions = Array.isArray(obj?.instructions) ? obj.instructions.map((x: any) => String(x).trim()).filter(Boolean) : []
     const summary = typeof obj?.summary === 'string' ? obj.summary.trim() : ''
+    // Default to true when the flag is missing, so a real adaptation is never
+    // wrongly treated as a no-op and stripped of its Save action.
+    const changed = typeof obj?.changed === 'boolean' ? obj.changed : true
     if (name && (ingredients.length || instructions.length)) {
-      return { summary: summary || name, adapted: { name, ingredients, instructions } }
+      return { summary: summary || name, adapted: { name, ingredients, instructions }, changed }
     }
-    if (summary) return { summary, adapted: null }
+    if (summary) return { summary, adapted: null, changed }
   } catch { /* not JSON — fall through to plain text */ }
-  return { summary: text.trim(), adapted: null }
+  return { summary: text.trim(), adapted: null, changed: true }
 }
 
 // AI cooking assistant: adapt a recipe to a goal (dairy-free, gluten-free, etc.),
@@ -96,14 +100,16 @@ router.post('/adapt', authMiddleware, async (req: Request, res: Response, next: 
       'Respond with ONLY a JSON object (no markdown fences, no text outside it) with keys: ' +
       '"summary" (2-4 short plain-text lines naming the key swaps as "X -> Y" and any step tweaks, ' +
       'lines separated by \\n), "name" (the adapted dish name), "ingredients" (array of strings, the ' +
-      'full adapted ingredient list with amounts), and "instructions" (array of strings, the adapted ' +
-      'steps in order). If it already meets the goal, keep it mostly as-is and say so in the summary.\n\n' +
+      'full adapted ingredient list with amounts), "instructions" (array of strings, the adapted ' +
+      'steps in order), and "changed" (boolean: true if you actually modified the recipe to meet the ' +
+      'goal, false if it already met the goal and needs no changes). If it already meets the goal, ' +
+      'set "changed" to false, keep the recipe as-is, and say so in the summary.\n\n' +
       JSON.stringify({ name: recipe.name, ingredients: recipe.ingredients, instructions: recipe.instructions })
 
     const out = await callClaude(prompt, 1200)
     if (out.ok) {
-      const { summary, adapted } = parseAdapted(out.text)
-      return res.json({ configured: true, text: summary, adapted })
+      const { summary, adapted, changed } = parseAdapted(out.text)
+      return res.json({ configured: true, text: summary, adapted, changed })
     }
     if (!out.configured) return res.json({ configured: false, message: 'The AI cooking assistant turns on once an ANTHROPIC_API_KEY is set on the backend.' })
     return res.status(out.status || 502).json({ error: out.error })
