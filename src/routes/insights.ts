@@ -118,21 +118,24 @@ router.post('/adapt', authMiddleware, async (req: Request, res: Response, next: 
   }
 })
 
-// Turn the model's "Dish name :: how to make it" lines into structured tiles.
-// Tolerant of stray numbering/bullets and a couple of alternative separators.
-function parseCookDishes(text: string): { name: string; steps: string }[] {
+// Turn the model's "Dish name :: how to make it :: nutrition" lines into tiles.
+// Tolerant of stray numbering/bullets, a missing nutrition field, and a couple
+// of alternative separators for lines that only have name + note.
+function parseCookDishes(text: string): { name: string; steps: string; nutrition: string }[] {
   return text
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
     .map(l => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, ''))
     .map(l => {
-      let sep = l.indexOf('::')
-      let width = 2
-      if (sep === -1) { sep = l.indexOf(' — '); width = 3 }
+      const parts = l.split('::').map(p => p.trim())
+      if (parts.length >= 2) {
+        return { name: parts[0], steps: parts[1] || '', nutrition: parts.slice(2).join(' · ').trim() }
+      }
+      let sep = l.indexOf(' — '); let width = 3
       if (sep === -1) { sep = l.indexOf(' - '); width = 3 }
-      if (sep === -1) return { name: l, steps: '' }
-      return { name: l.slice(0, sep).trim(), steps: l.slice(sep + width).trim() }
+      if (sep === -1) return { name: l, steps: '', nutrition: '' }
+      return { name: l.slice(0, sep).trim(), steps: l.slice(sep + width).trim(), nutrition: '' }
     })
     .filter(d => d.name)
 }
@@ -148,7 +151,9 @@ router.post('/cook', authMiddleware, async (req: Request, res: Response, next: N
       'You are a resourceful home cook. Assume basic salt, pepper, oil and water are on hand. ' +
       'From only these ingredients, suggest 3-4 specific dishes the person could make right now. ' +
       'Put each dish on its own line in exactly this form: "Dish name :: a short instruction of ' +
-      'one or two sentences on how to make it". No preamble, no numbering, no markdown.\n\n' +
+      'one or two sentences on how to make it :: a rough nutrition estimate per serving as ' +
+      'approximate calories and grams of protein, e.g. ≈480 kcal · 32g protein". ' +
+      'No preamble, no numbering, no markdown.\n\n' +
       'Ingredients: ' + pantry.join(', ')
 
     const out = await callClaude(prompt, 700)
