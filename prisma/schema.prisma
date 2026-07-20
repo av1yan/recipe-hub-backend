@@ -30,6 +30,8 @@ model User {
   savedRecipes  SavedRecipe[]
   ratings       RecipeRating[]
   resetTokens   PasswordResetToken[]
+  householdMemberships HouseholdMember[]
+  sharedGroceryAdds    SharedGroceryItem[] @relation("SharedGroceryAddedBy")
 }
 
 model PasswordResetToken {
@@ -221,4 +223,57 @@ model CookbookRecipe {
   recipe        Recipe     @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
   @@unique([cookbookId, recipeId])
+}
+
+// A family/household that shares a live grocery list. Members join with the
+// invite code. Everyone in the household reads and writes the same items, so a
+// change on one phone shows up on the others (the client polls while open).
+model Household {
+  id           String    @id @default(cuid())
+  name         String
+  // Short, human-typable code (e.g. "K4P7QR"). Unique so joins are unambiguous.
+  inviteCode   String    @unique
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  members      HouseholdMember[]
+  groceryItems SharedGroceryItem[]
+}
+
+model HouseholdMember {
+  id          String    @id @default(cuid())
+  householdId String
+  userId      String
+  // "owner" (the creator) or "member".
+  role        String    @default("member")
+  joinedAt    DateTime  @default(now())
+
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // A user is in at most one household, enforced in the join/create routes; this
+  // just stops the same user being added twice to the same one.
+  @@unique([householdId, userId])
+  @@index([userId])
+}
+
+model SharedGroceryItem {
+  id          String    @id @default(cuid())
+  householdId String
+  name        String
+  quantity    Float     @default(1)
+  unit        String    @default("piece")
+  category    String    @default("general")
+  checked     Boolean   @default(false)
+  // Who added it, denormalized so the UI can show "added by Alex" without a join
+  // and it survives that member leaving.
+  addedById   String?
+  addedByName String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  addedBy     User?     @relation("SharedGroceryAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
+
+  @@index([householdId])
 }

@@ -9,6 +9,7 @@ import mealPlanRoutes from './routes/mealPlans.js'
 import groceryRoutes from './routes/groceryLists.js'
 import cookbookRoutes from './routes/cookbooks.js'
 import insightsRoutes from './routes/insights.js'
+import householdRoutes from './routes/household.js'
 
 const app = express()
 const PORT = process.env.PORT || 5000
@@ -27,6 +28,7 @@ app.use('/api/meal-plans', mealPlanRoutes)
 app.use('/api/grocery-lists', groceryRoutes)
 app.use('/api/cookbooks', cookbookRoutes)
 app.use('/api/insights', insightsRoutes)
+app.use('/api/household', householdRoutes)
 
 // Health check
 app.get('/health', (req, res) => {
