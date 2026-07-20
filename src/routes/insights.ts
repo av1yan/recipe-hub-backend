@@ -118,9 +118,22 @@ router.post('/adapt', authMiddleware, async (req: Request, res: Response, next: 
   }
 })
 
+// The model often ignores the "::" before the estimate and just tacks it onto
+// the end of the instruction, so pull a trailing "…NNN kcal … protein" off the
+// steps when the dedicated field is empty.
+function extractNutrition(steps: string): { steps: string; nutrition: string } {
+  const m = steps.match(/[≈~]?\s*\d{2,4}\s*k?cal\b.*$/i)
+  if (m && m.index !== undefined && m.index > 0) {
+    const nutrition = steps.slice(m.index).replace(/^[\s.,;:–—-]+/, '').trim()
+    const rest = steps.slice(0, m.index).replace(/[\s.,;:–—-]+$/, '').trim()
+    return { steps: rest, nutrition }
+  }
+  return { steps, nutrition: '' }
+}
+
 // Turn the model's "Dish name :: how to make it :: nutrition" lines into tiles.
-// Tolerant of stray numbering/bullets, a missing nutrition field, and a couple
-// of alternative separators for lines that only have name + note.
+// Tolerant of stray numbering/bullets, a missing/inlined nutrition field, and a
+// couple of alternative separators for lines that only have name + note.
 function parseCookDishes(text: string): { name: string; steps: string; nutrition: string }[] {
   return text
     .split('\n')
@@ -128,14 +141,21 @@ function parseCookDishes(text: string): { name: string; steps: string; nutrition
     .filter(Boolean)
     .map(l => l.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, ''))
     .map(l => {
+      let name: string, steps: string, nutrition: string
       const parts = l.split('::').map(p => p.trim())
       if (parts.length >= 2) {
-        return { name: parts[0], steps: parts[1] || '', nutrition: parts.slice(2).join(' · ').trim() }
+        name = parts[0]; steps = parts[1] || ''; nutrition = parts.slice(2).join(' · ').trim()
+      } else {
+        let sep = l.indexOf(' — '); let width = 3
+        if (sep === -1) { sep = l.indexOf(' - '); width = 3 }
+        if (sep === -1) { name = l; steps = ''; nutrition = '' }
+        else { name = l.slice(0, sep).trim(); steps = l.slice(sep + width).trim(); nutrition = '' }
       }
-      let sep = l.indexOf(' — '); let width = 3
-      if (sep === -1) { sep = l.indexOf(' - '); width = 3 }
-      if (sep === -1) return { name: l, steps: '', nutrition: '' }
-      return { name: l.slice(0, sep).trim(), steps: l.slice(sep + width).trim(), nutrition: '' }
+      if (!nutrition && steps) {
+        const ex = extractNutrition(steps)
+        steps = ex.steps; nutrition = ex.nutrition
+      }
+      return { name, steps, nutrition }
     })
     .filter(d => d.name)
 }
