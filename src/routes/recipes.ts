@@ -50,6 +50,17 @@ router.post('/import/text', authMiddleware, async (req: Request, res: Response, 
 
 router.post('/', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // Keep empty/stub recipes out: need a name and at least one real ingredient
+    // or step. Guards every path (manual, import, pantry save/plan).
+    const { name, ingredients, instructions } = req.body || {}
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw new ApiError(400, 'Give the recipe a name')
+    }
+    const hasIngredient = Array.isArray(ingredients) && ingredients.some((i: any) => i && String(i.name || '').trim())
+    const hasStep = Array.isArray(instructions) && instructions.some((s: any) => s && String(s.text || '').trim())
+    if (!hasIngredient && !hasStep) {
+      throw new ApiError(400, 'Add at least one ingredient or step')
+    }
     const recipe = await createRecipe(req.user!.userId, req.body)
     res.json(recipe)
   } catch (err) {
