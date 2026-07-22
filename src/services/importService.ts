@@ -146,6 +146,58 @@ const VULGAR: Record<string, number> = {
   '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875,
 }
 
+/** One amount: "1", "1.5", "1/2", "1 1/2", "½", "1½". */
+const AMOUNT_SRC = String.raw`\d+\s+\d+\/\d+|\d+\/\d+|\d*[½⅓⅔¼¾⅛⅜⅝⅞]|\d+(?:\.\d+)?`
+
+/**
+ * Splits a whole ingredient list that arrived as one line.
+ *
+ * TikTok hands captions over with their newlines stripped, so a list writes
+ * itself out as "2 pints tomato 1 shallot 3 cloves garlic 1/2 cup olive oil".
+ * Each fresh amount starts a new ingredient, so that is where this cuts.
+ *
+ * Only a line that *begins* with an amount and carries at least two of them is
+ * a candidate, which keeps ordinary prose ("Bake at 400 for 40 min") and single
+ * ingredients out of it. Amounts inside brackets ("1 can (400 g) tomatoes"),
+ * ranges ("2 to 3 cloves") and multipliers ("2 x 400 g tins") are not cuts
+ * either -- they belong to the amount before them.
+ *
+ * An item with no amount of its own cannot be told from the previous
+ * ingredient's name, so a trailing "Salt Thyme" stays attached. The review
+ * screen is there to fix the remainder.
+ */
+export function splitRunOnIngredients(raw: string): string[] {
+  const line = stripHtml(raw).trim()
+  if (!line || !new RegExp(`^(?:${AMOUNT_SRC})`).test(line)) return [line]
+
+  const re = new RegExp(AMOUNT_SRC, 'g')
+  const cuts: number[] = []
+  let depth = 0
+  let scanned = 0
+  let m: RegExpExecArray | null
+
+  while ((m = re.exec(line))) {
+    // Track bracket depth up to this match so bracketed amounts are skipped.
+    for (; scanned < m.index; scanned++) {
+      const ch = line[scanned]
+      if (ch === '(' || ch === '[') depth++
+      else if (ch === ')' || ch === ']') depth = Math.max(0, depth - 1)
+    }
+    if (depth > 0) continue
+    if (m.index === 0) { cuts.push(0); continue }
+    if (!/\s/.test(line[m.index - 1])) continue
+    // The word before decides whether this amount opens a new ingredient.
+    const before = line.slice(0, m.index).trim().split(/\s+/).pop() || ''
+    if (/^(to|or|and|x|×|\+|-|–|—)$/i.test(before)) continue
+    cuts.push(m.index)
+  }
+
+  if (cuts.length < 2) return [line]
+  return cuts
+    .map((start, i) => line.slice(start, cuts[i + 1] ?? line.length).trim())
+    .filter(Boolean)
+}
+
 export function parseIngredient(raw: string): { name: string; quantity: number; unit: string } {
   const line = stripHtml(raw).replace(/^[-*•]\s*/, '').trim()
   if (!line) return { name: '', quantity: 1, unit: '' }
@@ -450,12 +502,20 @@ export function importFromText(raw: string): RecipeDraft {
     // Headed layout: trust the author's own sections.
     const ingStart = ingHeading === -1 ? 1 : ingHeading + 1
     const ingEnd = stepHeading > ingStart ? stepHeading : lines.length
-    ingredientLines = lines.slice(ingStart, ingEnd)
+    // A headed list can still run on to one line (a pasted TikTok caption).
+    ingredientLines = lines.slice(ingStart, ingEnd).flatMap(splitRunOnIngredients)
     stepLines = stepHeading === -1 ? [] : lines.slice(stepHeading + 1)
   } else {
     // No headings: guess from the shape of each line.
     warnings.push('No ingredient/step headings found — check the split below')
     for (const line of lines.slice(1)) {
+      // A run-on list is long, so the length test below would read it as prose
+      // and file the whole ingredient list under steps. Check it first.
+      const parts = splitRunOnIngredients(line)
+      if (parts.length > 1) {
+        ingredientLines.push(...parts)
+        continue
+      }
       const looksLikeIngredient = line.length < 60 && /^[\d½⅓⅔¼¾⅛•\-*]/.test(line)
       if (looksLikeIngredient) ingredientLines.push(line)
       else if (line.length > 25) stepLines.push(line)
