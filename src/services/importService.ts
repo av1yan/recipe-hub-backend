@@ -198,6 +198,67 @@ export function splitRunOnIngredients(raw: string): string[] {
     .filter(Boolean)
 }
 
+/** A line that is nothing but hashtags — social captions end with a blob. */
+export function isHashtagLine(l: string): boolean {
+  const toks = l.trim().split(/\s+/)
+  return toks.length > 0 && toks.every(t => /^#[\p{L}\p{N}_]+$/u.test(t))
+}
+
+/** Strip a trailing "#foo #bar" run tacked onto a content line. */
+export function stripTrailingHashtags(l: string): string {
+  return l.replace(/(?:\s+#[\p{L}\p{N}_]+)+\s*$/u, '').trim()
+}
+
+// Social-caption chatter that is never a recipe title.
+const CHATTY = /\b(haha+|lol|omg|everybody|guys|y'?all|link in bio|follow|check (?:this|it) out|comment|save this|did you know)\b/i
+
+const HEADING_RE = /^(ingredients|you.?ll need|what you need|instructions|method|directions|steps|preparation|how to)\b/i
+
+/** True if a line opens with an amount or a bullet, i.e. it is an ingredient. */
+function looksLikeIngredientStart(l: string): boolean {
+  return new RegExp(`^(?:${AMOUNT_SRC})`).test(l) || /^[•\-*]/.test(l)
+}
+
+/**
+ * Picks a recipe title out of the top of a caption.
+ *
+ * A pasted TikTok/Instagram caption opens with chatter ("Did you knowuh….
+ * Everybody does recipes like this hahaha") long before it says what the dish
+ * is, so line 1 is a poor title. This skips hashtag, heading, ingredient and
+ * chatty lines, and prefers a short, title-shaped line -- trimming social
+ * scaffolding like a leading "This is " and a trailing "— super easy recipe!".
+ * Returns the line's index too, so the caller can keep it out of the steps.
+ */
+export function pickTitle(lines: string[]): { name: string; index: number } {
+  const clean = (l: string) =>
+    stripTrailingHashtags(l)
+      .replace(/^#+\s*/, '')
+      .replace(/^(?:this is|here'?s|recipe:|today'?s recipe:?|how to make)\s+/i, '')
+      // Drop a spaced "— super easy recipe" style tag clause (spaced dash only,
+      // so hyphenated words like "One-Pan" are safe).
+      .replace(/\s+[-–—]\s+.*\brecipe\b.*$/i, '')
+      .replace(/:\s+.*\brecipe\b.*$/i, '')
+      .replace(/[.!…]+$/, '')
+      .trim()
+
+  const cand: { i: number; raw: string }[] = []
+  for (let i = 0; i < Math.min(lines.length, 6); i++) {
+    const l = lines[i]
+    if (isHashtagLine(l) || HEADING_RE.test(l) || looksLikeIngredientStart(l)) continue
+    cand.push({ i, raw: l })
+  }
+
+  const title = cand.find(c => {
+    const t = clean(c.raw)
+    return t && t.length <= 60 && t.split(/\s+/).length <= 8 && !CHATTY.test(c.raw)
+  })
+  if (title) return { name: clean(title.raw).slice(0, 90) || 'Imported recipe', index: title.i }
+
+  const first = cand[0]
+  const name = (first ? clean(first.raw) : (lines[0] || '').replace(/^#+\s*/, '')).slice(0, 90)
+  return { name: name || 'Imported recipe', index: first ? first.i : 0 }
+}
+
 export function parseIngredient(raw: string): { name: string; quantity: number; unit: string } {
   const line = stripHtml(raw).replace(/^[-*•]\s*/, '').trim()
   if (!line) return { name: '', quantity: 1, unit: '' }
@@ -488,7 +549,8 @@ export function importFromText(raw: string): RecipeDraft {
   if (lines.length < 2) throw new ApiError(400, "That's too short to read as a recipe")
 
   const warnings: string[] = []
-  const name = lines[0].replace(/^#+\s*/, '').slice(0, 90)
+  // Not just line 1 -- a caption buries the dish name under chatter.
+  const { name, index: titleIdx } = pickTitle(lines)
 
   const ingHeading = lines.findIndex(l => /^(ingredients|you.?ll need|what you need)\b/i.test(l))
   const stepHeading = lines.findIndex(l =>
@@ -503,12 +565,15 @@ export function importFromText(raw: string): RecipeDraft {
     const ingStart = ingHeading === -1 ? 1 : ingHeading + 1
     const ingEnd = stepHeading > ingStart ? stepHeading : lines.length
     // A headed list can still run on to one line (a pasted TikTok caption).
-    ingredientLines = lines.slice(ingStart, ingEnd).flatMap(splitRunOnIngredients)
-    stepLines = stepHeading === -1 ? [] : lines.slice(stepHeading + 1)
+    ingredientLines = lines.slice(ingStart, ingEnd).filter(l => !isHashtagLine(l)).flatMap(splitRunOnIngredients)
+    stepLines = stepHeading === -1 ? [] : lines.slice(stepHeading + 1).filter(l => !isHashtagLine(l))
   } else {
     // No headings: guess from the shape of each line.
     warnings.push('No ingredient/step headings found — check the split below')
-    for (const line of lines.slice(1)) {
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i]
+      if (i === titleIdx) continue        // the title is not also a step
+      if (isHashtagLine(line)) continue   // "#recipe #food" is neither
       // A run-on list is long, so the length test below would read it as prose
       // and file the whole ingredient list under steps. Check it first.
       const parts = splitRunOnIngredients(line)
@@ -523,16 +588,17 @@ export function importFromText(raw: string): RecipeDraft {
   }
 
   const ingredients = ingredientLines
-    .filter(l => !/^(instructions|method|directions|steps)\b/i.test(l))
+    .filter(l => !/^(instructions|method|directions|steps)\b/i.test(l) && !isHashtagLine(l))
     .map(parseIngredient)
     .filter(i => i.name)
 
   const instructions = stepLines
-    // Strip "1." / "Step 2)" and bullet markers. Ingredients already lost their
-    // bullets in parseIngredient; steps kept theirs, so a bulleted method came
-    // through as "- Whisk the mustard…".
-    .map(l => l.replace(/^\s*(?:step\s*)?\d+[.)]\s*/i, '').replace(/^\s*[-*•–—]\s*/, '').trim())
-    .filter(l => l.length > 2)
+    // Strip "1." / "Step 2)" and bullet markers, plus any trailing hashtags a
+    // caption tacked onto the line. Ingredients already lost their bullets in
+    // parseIngredient; steps kept theirs, so a bulleted method came through as
+    // "- Whisk the mustard…".
+    .map(l => stripTrailingHashtags(l).replace(/^\s*(?:step\s*)?\d+[.)]\s*/i, '').replace(/^\s*[-*•–—]\s*/, '').trim())
+    .filter(l => l.length > 2 && !isHashtagLine(l))
     .map(text => ({ text }))
 
   if (!ingredients.length) warnings.push('No ingredients found — add them yourself')
