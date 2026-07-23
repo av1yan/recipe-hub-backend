@@ -244,6 +244,21 @@ function looksLikeStep(line: string): boolean {
   return /\s/.test(line) && STEP_VERB.test(line)
 }
 
+/**
+ * A leftover short line that reads as an ingredient rather than a step or
+ * blurb -- a bare "Salt", "Thyme", "Fresh parsley" with no leading amount.
+ * Only reached after step/chatter checks, so it stays conservative: a short
+ * noun phrase (≤4 words), no sentence punctuation (a step ends "…smooth."),
+ * and not a one-word imperative ("Serve").
+ */
+function looksLikeBareIngredient(line: string): boolean {
+  if (line.length > 35 || /[.!?]$/.test(line) || !/[a-zA-Z]/.test(line)) return false
+  const words = line.split(/\s+/)
+  if (words.length > 4) return false
+  if (words.length === 1 && STEP_VERB.test(line)) return false
+  return true
+}
+
 const HEADING_RE = /^(ingredients|you.?ll need|what you need|instructions|method|directions|steps|preparation|how to)\b/i
 
 /** True if a line opens with an amount or a bullet, i.e. it is an ingredient. */
@@ -618,6 +633,8 @@ export function importFromText(raw: string): RecipeDraft {
       else if (isCaptionChatter(line)) { /* caption blurb, not a step */ }
       // A verb-led line is a step even when short; otherwise fall back to length.
       else if (looksLikeStep(line) || line.length > 25) stepLines.push(line)
+      // A short leftover noun phrase is most likely a bare ingredient.
+      else if (looksLikeBareIngredient(line)) ingredientLines.push(line)
     }
   }
 
