@@ -210,7 +210,23 @@ export function stripTrailingHashtags(l: string): string {
 }
 
 // Social-caption chatter that is never a recipe title.
-const CHATTY = /\b(haha+|lol|omg|everybody|guys|y'?all|link in bio|follow|check (?:this|it) out|comment|save this|did you know)\b/i
+const CHATTY = /\b(haha+|lol|omg|everybody|you guys|guys|y'?all|link in bio|follow|check (?:this|it) out|comment|save this|did you know|so good|obsessed|trust me|game ?changer|must try|you have to try)\b/i
+
+/**
+ * True if a line is caption blurb rather than a cooking instruction, so it
+ * should not be filed as a step. Only used in the heading-less guess path --
+ * a headed recipe's own "Instructions" section is trusted as-is.
+ *
+ * Targets the announcement/marketing lines that sit between the title and the
+ * method ("This is the best pasta recipe ever, so easy!"), while leaving real
+ * imperative steps alone ("This is the tricky part: fold gently" does not
+ * match -- no recipe/best/so-good tell).
+ */
+function isCaptionChatter(l: string): boolean {
+  return CHATTY.test(l)
+    || /^(?:this is|here'?s|here is)\b.*\b(?:recipe|dish|the best|so (?:good|easy|creamy|delicious|yummy))\b/i.test(l)
+    || /\bbest\b[^.]*\bever\b/i.test(l)
+}
 
 const HEADING_RE = /^(ingredients|you.?ll need|what you need|instructions|method|directions|steps|preparation|how to)\b/i
 
@@ -583,7 +599,7 @@ export function importFromText(raw: string): RecipeDraft {
       }
       const looksLikeIngredient = line.length < 60 && /^[\d½⅓⅔¼¾⅛•\-*]/.test(line)
       if (looksLikeIngredient) ingredientLines.push(line)
-      else if (line.length > 25) stepLines.push(line)
+      else if (line.length > 25 && !isCaptionChatter(line)) stepLines.push(line)
     }
   }
 
