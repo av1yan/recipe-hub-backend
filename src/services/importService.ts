@@ -228,6 +228,22 @@ function isCaptionChatter(l: string): boolean {
     || /\bbest\b[^.]*\bever\b/i.test(l)
 }
 
+// Cooking imperatives that open a step. Deliberately excludes words that are
+// also common ingredient nouns (salt, butter, oil, flour, cream…) so a bare
+// ingredient isn't mistaken for a step. The trailing \b means a participle
+// like "Sliced almonds" won't match `slice` -- only the imperative "Slice …".
+const STEP_VERB = /^(?:preheat|heat|cook|bake|roast|grill|fry|saut[eé]|sear|boil|simmer|poach|steam|braise|stir|mix|combine|whisk|beat|fold|blend|knead|add|pour|drizzle|sprinkle|season|taste|drain|strain|rinse|peel|chop|slice|dice|mince|grate|crush|mash|melt|dissolve|reduce|bring|remove|transfer|place|cover|flip|turn|toss|marinate|rub|spread|layer|arrange|assemble|garnish|serve|divide|squeeze|baste|deglaze|skim|whip|sift|grease|brush|repeat|return|reserve|enjoy|cut|cool|chill|let|leave|rest|set|top|scoop|press|wrap|dip)\b/i
+
+/**
+ * A short line the length test would drop is still a step if it reads as an
+ * instruction -- "Bake for 30 minutes.", "Serve hot." Requires a leading
+ * cooking verb *and* a second word, so a one-word ingredient ("Salt") stays
+ * out.
+ */
+function looksLikeStep(line: string): boolean {
+  return /\s/.test(line) && STEP_VERB.test(line)
+}
+
 const HEADING_RE = /^(ingredients|you.?ll need|what you need|instructions|method|directions|steps|preparation|how to)\b/i
 
 /** True if a line opens with an amount or a bullet, i.e. it is an ingredient. */
@@ -599,7 +615,9 @@ export function importFromText(raw: string): RecipeDraft {
       }
       const looksLikeIngredient = line.length < 60 && /^[\d½⅓⅔¼¾⅛•\-*]/.test(line)
       if (looksLikeIngredient) ingredientLines.push(line)
-      else if (line.length > 25 && !isCaptionChatter(line)) stepLines.push(line)
+      else if (isCaptionChatter(line)) { /* caption blurb, not a step */ }
+      // A verb-led line is a step even when short; otherwise fall back to length.
+      else if (looksLikeStep(line) || line.length > 25) stepLines.push(line)
     }
   }
 
