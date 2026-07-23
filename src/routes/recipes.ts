@@ -9,7 +9,7 @@ import {
   unsaveRecipe,
   getSavedRecipes,
 } from '../services/recipeService.js'
-import { importFromUrl, importFromText, fetchSocialCaption } from '../services/importService.js'
+import { importFromUrl, importFromText, importFromImage, fetchSocialCaption } from '../services/importService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
 
@@ -43,6 +43,18 @@ router.post('/import/text', authMiddleware, async (req: Request, res: Response, 
     const { text } = req.body
     if (!text) throw new ApiError(400, 'Paste the recipe text to import')
     res.json(importFromText(String(text)))
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Reads a recipe out of a photo with Claude vision. { configured:false } tells
+// the client to fall back to its own on-device OCR.
+router.post('/import/image', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { image, mediaType } = req.body
+    if (!image || typeof image !== 'string') throw new ApiError(400, 'No image to read')
+    res.json(await importFromImage(image, typeof mediaType === 'string' ? mediaType : 'image/jpeg'))
   } catch (err) {
     next(err)
   }

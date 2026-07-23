@@ -261,6 +261,27 @@ function looksLikeBareIngredient(line: string): boolean {
 
 const HEADING_RE = /^(ingredients|you.?ll need|what you need|instructions|method|directions|steps|preparation|how to)\b/i
 
+// An ingredient sub-heading in a sectioned recipe -- "For the Marinade", "For
+// the Tadka". A label, not an ingredient.
+const SECTION_RE = /^for\s+(?:the\s+)?[\w\s&-]{2,30}$/i
+
+// App/phone chrome that OCR scoops up from a screenshot -- never a recipe line.
+const UI_CHROME_RE = /^(?:add to (?:groceries|cart|list)|cook step[- ]by[- ]step|start cooking|edit|share|print|save recipe|servings?|prep time|cook time|total time|nutrition|home|browse|meals?|groceries)\b/i
+
+/**
+ * Undo the mess OCR makes of the little icon beside each ingredient on a
+ * screenshot: a stray symbol or one/two-letter blob glued to the front of the
+ * line ("O 1/2 tsp salt", "@® 1tsp Kashmiri", "¥ Add to groceries"). Strips a
+ * leading symbol run, and a 1-2 char junk token when it sits right before an
+ * amount -- but nothing else, so real text is left alone.
+ */
+function deOcr(line: string): string {
+  // Keep '#' so a hashtag line is still recognised (and dropped) downstream.
+  let l = line.replace(/^[^\p{L}\p{N}(#]+/u, '')                     // leading symbols
+  l = l.replace(/^[^\s\d]{1,2}\s+(?=[\d½⅓⅔¼¾⅛⅜⅝⅞])/u, '')          // "O " / "@® " before an amount
+  return l.trim()
+}
+
 /** True if a line opens with an amount or a bullet, i.e. it is an ingredient. */
 function looksLikeIngredientStart(l: string): boolean {
   return new RegExp(`^(?:${AMOUNT_SRC})`).test(l) || /^[•\-*]/.test(l)
@@ -381,6 +402,106 @@ function toUrl(rawUrl: string): URL {
     throw new ApiError(400, "That doesn't look like a web address")
   }
   return url
+}
+
+// ─── photo import via Claude vision ──────────────────────────────────────────
+
+const VISION_MODEL = process.env.IMPORT_VISION_MODEL || process.env.INSIGHTS_MODEL || 'claude-haiku-4-5-20251001'
+const VISION_MEDIA = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+
+const VISION_PROMPT = `You are reading a photo of a recipe (often a screenshot from another cooking app). Extract the recipe as JSON only.
+
+Shape:
+{"name": string, "servings": number|null, "prepTime": number|null, "cookTime": number|null, "ingredients": [{"name": string, "quantity": number|null, "unit": string}], "instructions": [string]}
+
+Rules:
+- prepTime and cookTime are in minutes.
+- Ignore app and phone chrome: buttons ("Add to groceries", "Cook step-by-step", "Edit", "Save recipe"), tab bars, the status bar/clock/battery, section labels like "INGREDIENTS"/"INSTRUCTIONS".
+- Ingredient section headers ("For the Marinade", "For the Tadka") are NOT ingredients — do not emit them as an ingredient. You may prefix the following ingredient names with the section if it helps, but never list the header alone.
+- Keep each ingredient's amount and unit: "1/2 tsp salt" -> {"name":"salt","quantity":0.5,"unit":"tsp"}. Write fractions as decimals. If there is no amount, use quantity null and unit "".
+- A step that is struck through or ticked off is still a real instruction — include it, in order, without its number prefix.
+- If a value is genuinely not shown, use null for numbers and "" for strings.
+- Respond with ONLY the JSON object. No prose, no markdown fences.`
+
+interface VisionResult extends RecipeDraft { configured?: boolean; message?: string }
+
+/**
+ * Reads a recipe out of a photo with Claude's vision. Far better than on-device
+ * OCR on a screenshot -- it keeps amounts, ignores app chrome, and folds
+ * section headers away. Returns { configured:false } when no API key is set so
+ * the client can fall back to its own OCR rather than failing.
+ */
+export async function importFromImage(base64: string, mediaType: string): Promise<VisionResult> {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) return { name: '', ...EMPTY, configured: false, message: 'Photo reading turns on once an ANTHROPIC_API_KEY is set on the backend.' }
+
+  const media = VISION_MEDIA.has(mediaType) ? mediaType : 'image/jpeg'
+  const data = base64.replace(/^data:[^,]+,/, '')  // tolerate a data: URL prefix
+  if (!data) throw new ApiError(400, 'No image data')
+
+  let r: globalThis.Response
+  try {
+    r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        max_tokens: 1500,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: media, data } },
+            { type: 'text', text: VISION_PROMPT },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    })
+  } catch {
+    throw new ApiError(502, "Couldn't reach the photo reader. Try again in a moment.")
+  }
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '')
+    throw new ApiError(502, 'The photo reader refused that image.' + (detail ? ' ' + detail.slice(0, 160) : ''))
+  }
+
+  const body = (await r.json().catch(() => ({}))) as any
+  const text = (body?.content?.[0]?.text || '').trim()
+  let parsed: any
+  try {
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+    parsed = JSON.parse(fence ? fence[1] : text)
+  } catch {
+    throw new ApiError(502, "Couldn't read a recipe out of that photo. Try a clearer shot, or paste the text.")
+  }
+
+  const num = (v: any): number => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : 0 }
+  const ingredients = (Array.isArray(parsed?.ingredients) ? parsed.ingredients : [])
+    .map((i: any) => ({
+      name: String(i?.name ?? '').trim(),
+      quantity: num(i?.quantity) || 1,
+      unit: String(i?.unit ?? '').trim(),
+    }))
+    .filter((i: any) => i.name)
+  const instructions = (Array.isArray(parsed?.instructions) ? parsed.instructions : [])
+    .map((s: any) => String(s ?? '').replace(/^\s*(?:step\s*)?\d+[.)]\s*/i, '').trim())
+    .filter(Boolean)
+    .map((text: string) => ({ text }))
+
+  const warnings: string[] = []
+  if (!ingredients.length) warnings.push('No ingredients found — add them yourself')
+  if (!instructions.length) warnings.push('No steps found — add them yourself')
+
+  return {
+    ...EMPTY,
+    name: String(parsed?.name ?? '').trim().slice(0, 90) || 'Imported recipe',
+    servings: num(parsed?.servings) || EMPTY.servings,
+    prepTime: num(parsed?.prepTime),
+    cookTime: num(parsed?.cookTime),
+    ingredients,
+    instructions,
+    warnings,
+  }
 }
 
 export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
@@ -592,7 +713,12 @@ function matchMealType(raw: string): string {
  */
 export function importFromText(raw: string): RecipeDraft {
   const text = String(raw || '').replace(/\r/g, '')
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+  const lines = text.split('\n')
+    // Tidy OCR icon junk, then drop section labels and app chrome a screenshot
+    // dragged in ("For the Tadka", "Add to groceries") -- neither ingredient
+    // nor step.
+    .map(l => deOcr(l.trim()))
+    .filter(l => l && !SECTION_RE.test(l) && !UI_CHROME_RE.test(l))
   if (lines.length < 2) throw new ApiError(400, "That's too short to read as a recipe")
 
   const warnings: string[] = []
