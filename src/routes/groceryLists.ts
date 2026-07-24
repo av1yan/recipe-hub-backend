@@ -7,10 +7,24 @@ import {
   updateGroceryItem,
   removeGroceryItem,
 } from '../services/groceryService.js'
+import { scanGroceryImage } from '../services/importService.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { ApiError } from '../middleware/errorHandler.js'
 
 const router = Router()
+
+// Reads a grocery list out of a photo with Claude vision. { configured:false }
+// tells the client to fall back to its own on-device OCR. Sits above /:id so
+// "scan" isn't read as a list id.
+router.post('/scan', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { image, mediaType } = req.body
+    if (!image || typeof image !== 'string') throw new ApiError(400, 'No image to read')
+    res.json(await scanGroceryImage(image, typeof mediaType === 'string' ? mediaType : 'image/jpeg'))
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.post('/', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {

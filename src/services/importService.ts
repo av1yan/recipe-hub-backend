@@ -504,6 +504,78 @@ export async function importFromImage(base64: string, mediaType: string): Promis
   }
 }
 
+const GROCERY_VISION_PROMPT = `You are reading a photo of a grocery / shopping list — handwritten or printed. Extract the items as JSON only.
+
+Shape: {"items": [string]}
+
+Rules:
+- One entry per grocery item, in the order written.
+- Keep any quantity and unit with the item: "2 kg rice", "3 apples", "1 dozen eggs", "milk".
+- Ignore anything that isn't a shopping item: the list's title/heading, prices, dates, checkboxes, doodles, page numbers, and app/phone chrome.
+- A crossed-out or ticked item is still an item — include it.
+- If the photo has no legible grocery items, return {"items": []}.
+- Respond with ONLY the JSON object. No prose, no markdown fences.`
+
+export interface GroceryScanResult { items: string[]; configured: boolean; message?: string }
+
+/**
+ * Reads a grocery list out of a photo with Claude's vision — sturdier than
+ * on-device OCR on a handwritten note. Returns { configured:false } when no API
+ * key is set so the client can fall back to its own OCR.
+ */
+export async function scanGroceryImage(base64: string, mediaType: string): Promise<GroceryScanResult> {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) return { items: [], configured: false, message: 'Photo reading turns on once an ANTHROPIC_API_KEY is set on the backend.' }
+
+  const media = VISION_MEDIA.has(mediaType) ? mediaType : 'image/jpeg'
+  const data = base64.replace(/^data:[^,]+,/, '')  // tolerate a data: URL prefix
+  if (!data) throw new ApiError(400, 'No image data')
+
+  let r: globalThis.Response
+  try {
+    r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: VISION_MODEL,
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: media, data } },
+            { type: 'text', text: GROCERY_VISION_PROMPT },
+          ],
+        }],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    })
+  } catch {
+    throw new ApiError(502, "Couldn't reach the photo reader. Try again in a moment.")
+  }
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '')
+    throw new ApiError(502, 'The photo reader refused that image.' + (detail ? ' ' + detail.slice(0, 160) : ''))
+  }
+
+  const body = (await r.json().catch(() => ({}))) as any
+  const text = (body?.content?.[0]?.text || '').trim()
+  let parsed: any
+  try {
+    const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+    parsed = JSON.parse(fence ? fence[1] : text)
+  } catch {
+    throw new ApiError(502, "Couldn't read a list out of that photo. Try a clearer shot.")
+  }
+
+  const raw = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.items) ? parsed.items : [])
+  const items = raw
+    .map((s: any) => String(s ?? '').trim())
+    .filter((s: string) => s.length >= 2 && /[a-zA-Z]/.test(s))
+    .slice(0, 100)
+
+  return { items, configured: true }
+}
+
 export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
   const url = toUrl(rawUrl)
   if (!['http:', 'https:'].includes(url.protocol)) {
