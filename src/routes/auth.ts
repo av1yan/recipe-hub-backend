@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import crypto from 'node:crypto'
-import { registerUser, loginUser, getUserProfile, updateUserProfile } from '../services/userService.js'
+import { registerUser, loginUser, getUserProfile, updateUserProfile, deleteUser, changePassword } from '../services/userService.js'
 import {
   authorizeUrl,
   exchangeCode,
@@ -185,6 +185,27 @@ router.put('/profile', authMiddleware, async (req: Request, res: Response, next:
     const { name, username } = req.body
     const user = await updateUserProfile(req.user!.userId, { name, username })
     res.json(user)
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.post('/change-password', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {}
+    if (!currentPassword || !newPassword) throw new ApiError(400, 'Missing current or new password')
+    await changePassword(req.user!.userId, String(currentPassword), String(newPassword))
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Permanent, server-side account deletion (App Store Guideline 5.1.1(v)).
+router.delete('/account', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await deleteUser(req.user!.userId)
+    res.json({ ok: true })
   } catch (err) {
     next(err)
   }

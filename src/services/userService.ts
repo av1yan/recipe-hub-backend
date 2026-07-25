@@ -52,6 +52,35 @@ export async function loginUser(identifier: string, password: string) {
   return { user: { id: user.id, email: user.email, name: user.name }, token }
 }
 
+/**
+ * Permanently deletes the account and everything it owns. The schema's
+ * onDelete: Cascade rules take care of recipes, meal plans, grocery lists,
+ * cookbooks, ratings, saved recipes, reset tokens and household memberships;
+ * SharedGroceryItem.addedBy is nulled so a shared item survives with no author.
+ * This is the real server-side deletion the App Store requires.
+ */
+export async function deleteUser(userId: string) {
+  await prisma.user.delete({ where: { id: userId } })
+}
+
+/**
+ * Changes the password for a password account after re-checking the current one.
+ * Accounts created through Google/Apple have no password to change.
+ */
+export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) throw new ApiError(404, 'User not found')
+  if (!user.passwordHash) {
+    const via = user.googleId ? 'Google' : 'Apple'
+    throw new ApiError(400, `This account signs in with ${via}, so there's no password to change`)
+  }
+  const valid = await verifyPassword(currentPassword, user.passwordHash)
+  if (!valid) throw new ApiError(401, 'Your current password is incorrect')
+  if (newPassword.length < 8) throw new ApiError(400, 'New password must be at least 8 characters')
+  const passwordHash = await hashPassword(newPassword)
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } })
+}
+
 export async function getUserProfile(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
