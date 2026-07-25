@@ -28,32 +28,50 @@ function parseProvider(value: string): Provider {
  * so it survives the stateless restarts this app gets on deploy while still
  * proving the callback answers a request we actually started.
  */
-function signState(): string {
+type ReturnTo = 'web' | 'app'
+
+function signState(returnTo: ReturnTo): string {
   const nonce = crypto.randomBytes(16).toString('hex')
   const issuedAt = Date.now().toString(36)
-  const body = `${nonce}.${issuedAt}`
+  // returnTo rides in the signed state so the callback (a separate request that
+  // only gets `state` back from the provider) knows whether to hand the token to
+  // the web site or to the native app's deep link.
+  const body = `${nonce}.${issuedAt}.${returnTo}`
   const mac = crypto.createHmac('sha256', process.env.JWT_SECRET || '').update(body).digest('hex')
   return `${body}.${mac}`
 }
 
-function verifyState(state: string | undefined): boolean {
-  if (!state) return false
+function verifyState(state: string | undefined): { ok: boolean; returnTo: ReturnTo } {
+  const fail = { ok: false, returnTo: 'web' as ReturnTo }
+  if (!state) return fail
   const parts = state.split('.')
-  if (parts.length !== 3) return false
-  const [nonce, issuedAt, mac] = parts
+  if (parts.length !== 4) return fail
+  const [nonce, issuedAt, returnTo, mac] = parts
   const expected = crypto
     .createHmac('sha256', process.env.JWT_SECRET || '')
-    .update(`${nonce}.${issuedAt}`)
+    .update(`${nonce}.${issuedAt}.${returnTo}`)
     .digest('hex')
   const a = Buffer.from(mac)
   const b = Buffer.from(expected)
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return fail
   // Ten minutes is plenty for a redirect round trip.
-  return Date.now() - parseInt(issuedAt, 36) < 10 * 60 * 1000
+  if (Date.now() - parseInt(issuedAt, 36) >= 10 * 60 * 1000) return fail
+  return { ok: true, returnTo: returnTo === 'app' ? 'app' : 'web' }
 }
 
 function frontendUrl(): string {
   return (process.env.FRONTEND_URL || '').replace(/\/+$/, '')
+}
+
+/**
+ * Where the signed-in token (or an error) is handed back through the URL
+ * fragment. Native sign-in runs in the system browser (Google/Apple refuse an
+ * embedded WebView) and returns via a custom-scheme deep link the app
+ * intercepts; the web flow returns to the site as before.
+ */
+function returnUrl(returnTo: ReturnTo, fragment: string): string {
+  if (returnTo === 'app') return `com.reciphub.app://oauth#${fragment}`
+  return `${frontendUrl()}/#${fragment}`
 }
 
 /** Which providers have credentials, so the UI only offers buttons that work. */
@@ -64,7 +82,10 @@ router.get('/oauth/providers', (_req: Request, res: Response) => {
 router.get('/oauth/:provider/start', (req: Request, res: Response, next: NextFunction) => {
   try {
     const provider = parseProvider(req.params.provider)
-    res.redirect(authorizeUrl(provider, signState()))
+    // A native app opens this in the system browser and wants the token back via
+    // its deep link, not the web frontend.
+    const returnTo: ReturnTo = req.query.return === 'app' ? 'app' : 'web'
+    res.redirect(authorizeUrl(provider, signState(returnTo)))
   } catch (err) {
     next(err)
   }
@@ -72,27 +93,30 @@ router.get('/oauth/:provider/start', (req: Request, res: Response, next: NextFun
 
 // Google redirects back with GET; Apple form_posts. Accept both.
 async function handleCallback(req: Request, res: Response, next: NextFunction) {
-  let provider: Provider | undefined
+  // Parsed up front so a failure still bounces back to the right place.
+  let returnTo: ReturnTo = 'web'
   try {
-    provider = parseProvider(req.params.provider)
+    const provider = parseProvider(req.params.provider)
     const { code, state, error } = { ...req.query, ...req.body } as Record<string, string>
+    const verified = verifyState(state)
+    returnTo = verified.returnTo
 
     if (error) throw new ApiError(401, error)
     if (!code) throw new ApiError(400, 'Missing authorization code')
-    if (!verifyState(state)) throw new ApiError(400, 'Sign-in expired, please try again')
+    if (!verified.ok) throw new ApiError(400, 'Sign-in expired, please try again')
 
     const identity = await exchangeCode(provider, code)
     const { token } = await findOrCreateUser(provider, identity)
 
     // Hand the token back through the fragment: it never reaches a server log
     // the way a query string would.
-    res.redirect(`${frontendUrl()}/#token=${encodeURIComponent(token)}`)
+    res.redirect(returnUrl(returnTo, `token=${encodeURIComponent(token)}`))
   } catch (err) {
     // A failure here lands in the browser, not in fetch(), so bounce back to
-    // the app with a readable reason instead of rendering JSON at the person.
+    // the app/site with a readable reason instead of rendering JSON at the person.
     const message = err instanceof ApiError ? err.message : 'Sign-in failed'
     if (!(err instanceof ApiError)) console.error(err)
-    res.redirect(`${frontendUrl()}/#oauth_error=${encodeURIComponent(message)}`)
+    res.redirect(returnUrl(returnTo, `oauth_error=${encodeURIComponent(message)}`))
   }
 }
 

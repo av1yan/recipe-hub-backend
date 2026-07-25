@@ -63,6 +63,30 @@ A mismatched redirect URI is the usual failure, and Google names it plainly
 For `APPLE_PRIVATE_KEY`, paste it with real newlines or with `\n` escapes —
 both are handled.
 
+## Native apps (iOS & Android)
+
+**Google works on device with no extra Google Cloud setup** — the same Web
+client above is reused. There is no separate "Android" or "iOS" OAuth client, no
+SHA-1 fingerprint, and no new redirect URI to register.
+
+How it works: an embedded WebView is blocked from Google's consent screen
+(`disallowed_useragent`), so the app opens `/api/auth/oauth/google/start?return=app`
+in the **system browser** instead. Google still redirects to the same backend
+`…/callback` it always has; the backend then bounces the signed-in token to the
+app through a custom-scheme deep link, `com.reciphub.app://oauth#token=…`, which
+the app registers and intercepts (iOS `CFBundleURLTypes`, Android
+`intent-filter`). So the only thing Google ever sees is the backend callback URL
+that is already whitelisted.
+
+Nothing to add on your side — once `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+are set, the Google button appears in the native app just as it does on the web.
+
+**Apple on device uses a different path** and needs no OAuth env vars at all: the
+iOS app runs Apple's native sign-in sheet and posts the identity token to
+`/api/auth/apple/native`, which verifies it against Apple's public keys. That is
+always available on an iOS build regardless of the Services-ID setup above (which
+is only for Apple sign-in *on the web*).
+
 ## Notes
 
 - **Apple sends a name exactly once**, on the very first authorization. Miss it
