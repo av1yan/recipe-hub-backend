@@ -68,8 +68,8 @@ router.post('/:id/items', authMiddleware, async (req: Request, res: Response, ne
 
 router.put('/items/:itemId', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { checked } = req.body
-    const item = await updateGroceryItem(req.user!.userId, req.params.itemId, checked)
+    const { checked, quantity } = req.body
+    const item = await updateGroceryItem(req.user!.userId, req.params.itemId, { checked, quantity })
     res.json(item)
   } catch (err) {
     next(err)

@@ -69,7 +69,11 @@ export async function addItemToGroceryList(
   })
 }
 
-export async function updateGroceryItem(userId: string, itemId: string, checked: boolean) {
+export async function updateGroceryItem(
+  userId: string,
+  itemId: string,
+  patch: { checked?: boolean; quantity?: number }
+) {
   const item = await prisma.groceryItem.findUnique({
     where: { id: itemId },
     include: { groceryList: true },
@@ -79,9 +83,17 @@ export async function updateGroceryItem(userId: string, itemId: string, checked:
     throw new Error('Item not found')
   }
 
+  // Only touch the fields actually provided — a `checked` toggle mustn't wipe
+  // the quantity, and a quantity restore (undo) mustn't flip `checked`.
+  const data: { checked?: boolean; quantity?: number } = {}
+  if (typeof patch.checked === 'boolean') data.checked = patch.checked
+  if (typeof patch.quantity === 'number' && !Number.isNaN(patch.quantity)) {
+    data.quantity = patch.quantity
+  }
+
   return prisma.groceryItem.update({
     where: { id: itemId },
-    data: { checked },
+    data,
   })
 }
 
