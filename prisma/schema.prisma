@@ -20,6 +20,13 @@ model User {
   googleId      String?    @unique
   appleId       String?    @unique
   avatar        String?
+  // Subscription entitlement, mirrored from RevenueCat (the App Store receipt's
+  // server-side verdict) so Pro is server-authoritative rather than trusting the
+  // client. `proSource` = "app_store" for a real subscription, "complimentary"
+  // for a grant we never let a RevenueCat miss revoke.
+  isPro         Boolean    @default(false)
+  proExpiresAt  DateTime?
+  proSource     String?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 

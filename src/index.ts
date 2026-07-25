@@ -10,6 +10,7 @@ import groceryRoutes from './routes/groceryLists.js'
 import cookbookRoutes from './routes/cookbooks.js'
 import insightsRoutes from './routes/insights.js'
 import householdRoutes from './routes/household.js'
+import subscriptionRoutes from './routes/subscription.js'
 
 const app = express()
 const PORT = process.env.PORT || 5000
@@ -29,6 +30,7 @@ app.use('/api/grocery-lists', groceryRoutes)
 app.use('/api/cookbooks', cookbookRoutes)
 app.use('/api/insights', insightsRoutes)
 app.use('/api/household', householdRoutes)
+app.use('/api/subscription', subscriptionRoutes)
 
 // Health check
 app.get('/health', (req, res) => {
@@ -52,6 +54,13 @@ app.post('/api/init-db', async (req, res) => {
           where: { email: 'demo@example.com' }
         })
         if (demoUser) {
+          // The demo is a permanent Pro showcase; grant it complimentarily so it
+          // stays Pro without a real subscription (and survives native sign-in,
+          // where Pro is server-authoritative).
+          await prisma.user.update({
+            where: { id: demoUser.id },
+            data: { isPro: true, proSource: 'complimentary' },
+          })
           await prisma.$disconnect()
           return res.json({ status: 'already_initialized', user: 'demo@example.com' })
         }
@@ -68,7 +77,9 @@ app.post('/api/init-db', async (req, res) => {
         data: {
           email: 'demo@example.com',
           name: 'Demo User',
-          passwordHash: hashedPassword
+          passwordHash: hashedPassword,
+          isPro: true,
+          proSource: 'complimentary'
         }
       })
       await prisma.$disconnect()
