@@ -171,6 +171,40 @@ export async function exchangeCode(provider: Provider, code: string): Promise<Id
 }
 
 /**
+ * Native Sign in with Apple. The iOS app runs Apple's own authorization sheet
+ * and hands us the resulting identity token directly, so there is no `code` to
+ * exchange and no client secret to mint -- we only verify the token Apple
+ * already signed. The one difference from the web flow is the audience: a
+ * native token's `aud` is the app's bundle id, not the web Services ID.
+ *
+ * `name` is passed separately because Apple embeds it in the token on the very
+ * first authorization only; the plugin surfaces it to the client, which relays
+ * it here so a brand-new account still gets a real name.
+ */
+export async function verifyAppleIdentity(identityToken: string, name?: string): Promise<Identity> {
+  const audience = process.env.APPLE_BUNDLE_ID || 'com.reciphub.app'
+  let claims
+  try {
+    ;({ payload: claims } = await jwtVerify(identityToken, jwksFor('apple'), {
+      issuer: CONFIG.apple.issuer as string,
+      audience,
+    }))
+  } catch {
+    throw new ApiError(401, 'Apple sign-in could not be verified')
+  }
+
+  const email = typeof claims.email === 'string' ? claims.email.toLowerCase() : ''
+  if (!email) throw new ApiError(401, 'Apple did not share an email address')
+
+  return {
+    providerId: String(claims.sub),
+    email,
+    emailVerified: claims.email_verified === true || claims.email_verified === 'true',
+    name: name?.trim() || undefined,
+  }
+}
+
+/**
  * Finds or creates the account behind a verified provider identity.
  *
  * Linking is keyed on the provider id first, so it survives an email change at

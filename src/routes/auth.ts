@@ -6,6 +6,7 @@ import {
   exchangeCode,
   findOrCreateUser,
   isConfigured,
+  verifyAppleIdentity,
   type Provider,
 } from '../services/oauthService.js'
 import { requestPasswordReset, resetPassword } from '../services/passwordResetService.js'
@@ -97,6 +98,24 @@ async function handleCallback(req: Request, res: Response, next: NextFunction) {
 
 router.get('/oauth/:provider/callback', handleCallback)
 router.post('/oauth/:provider/callback', handleCallback)
+
+/**
+ * Native Sign in with Apple: the iOS app runs Apple's authorization sheet and
+ * posts the resulting identity token here. We verify it and mint our own JWT,
+ * returning the same `{ user, token }` shape as password login so the client
+ * treats every sign-in path identically.
+ */
+router.post('/apple/native', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { identityToken, name } = req.body || {}
+    if (!identityToken) throw new ApiError(400, 'Missing identity token')
+    const identity = await verifyAppleIdentity(String(identityToken), name ? String(name) : undefined)
+    const { user, token } = await findOrCreateUser('apple', identity)
+    res.json({ user, token })
+  } catch (err) {
+    next(err)
+  }
+})
 
 router.post('/register', async (req: Request, res: Response, next: NextFunction) => {
   try {
