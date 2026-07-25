@@ -3,6 +3,7 @@ import {
   createGroceryList,
   getGroceryList,
   listGroceryLists,
+  deleteGroceryList,
   addItemToGroceryList,
   updateGroceryItem,
   removeGroceryItem,
@@ -80,6 +81,17 @@ router.delete('/items/:itemId', authMiddleware, async (req: Request, res: Respon
   try {
     await removeGroceryItem(req.user!.userId, req.params.itemId)
     res.json({ success: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Delete a whole list (items cascade). One path segment, so it never shadows
+// the two-segment /items/:itemId route above.
+router.delete('/:id', authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const result = await deleteGroceryList(req.user!.userId, req.params.id)
+    res.json(result)
   } catch (err) {
     next(err)
   }

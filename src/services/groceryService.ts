@@ -28,6 +28,14 @@ function itemKey(name: string, unit: string): string {
   return `${(name || '').trim().toLowerCase()}|${(unit || '').trim().toLowerCase()}`
 }
 
+// Delete one of the caller's lists. Its items cascade (schema onDelete: Cascade).
+// deleteMany scopes to the owner and makes a missing/already-gone id a harmless
+// no-op rather than a 500.
+export async function deleteGroceryList(userId: string, id: string) {
+  const result = await prisma.groceryList.deleteMany({ where: { id, userId } })
+  return { deleted: result.count > 0 }
+}
+
 export async function addItemToGroceryList(
   userId: string,
   listId: string,
