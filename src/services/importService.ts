@@ -341,6 +341,10 @@ export function parseIngredient(raw: string): { name: string; quantity: number; 
     rest = rest.slice(amount[0].length)
   }
 
+  // A package size in brackets -- "1 (14 oz) can tomatoes" -- is not the name.
+  // Drop it before the unit is read, so "can" still comes through as the unit.
+  rest = rest.replace(/^\([^)]*\)\s*/, '')
+
   // Unit directly after the amount.
   let unit = ''
   const unitMatch = rest.match(/^([a-zA-Z]+)\.?\s+/)
@@ -348,6 +352,8 @@ export function parseIngredient(raw: string): { name: string; quantity: number; 
     unit = unitMatch[1].toLowerCase()
     rest = rest.slice(unitMatch[0].length)
   }
+  // "1 can (28 oz) crushed tomatoes": the size can follow the unit too.
+  rest = rest.replace(/^\([^)]*\)\s*/, '')
 
   const name = rest.replace(/^of\s+/i, '').trim() || line
   return { name, quantity: quantity || 1, unit }
