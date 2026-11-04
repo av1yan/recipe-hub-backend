@@ -91,6 +91,21 @@ export async function updateRecipe(userId: string, id: string, data: any) {
     if (data[f] !== undefined) updateData[f] = data[f]
   }
 
+  // Ingredients, steps and tags are replaced as a set when sent, so a row the
+  // editor removed is removed here too.
+  if (Array.isArray(data.ingredients)) {
+    updateData.ingredients = { deleteMany: {}, create: data.ingredients }
+  }
+  if (Array.isArray(data.instructions)) {
+    updateData.instructions = {
+      deleteMany: {},
+      create: data.instructions.map((step: any, idx: number) => ({ ...step, stepNumber: idx + 1 })),
+    }
+  }
+  if (Array.isArray(data.tags)) {
+    updateData.tags = { deleteMany: {}, create: data.tags.map((tag: string) => ({ tag })) }
+  }
+
   if (data.nutrition) {
     const n = data.nutrition
     const fields = {

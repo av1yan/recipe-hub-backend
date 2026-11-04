@@ -82,13 +82,17 @@ export async function changePassword(userId: string, currentPassword: string, ne
 }
 
 export async function getUserProfile(userId: string) {
-  return prisma.user.findUnique({
+  const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
       id: true, email: true, name: true, username: true, avatar: true, createdAt: true,
-      isPro: true, proExpiresAt: true, proSource: true,
+      isPro: true, proExpiresAt: true, proSource: true, passwordHash: true,
     },
   })
+  if (!user) return user
+  // Report whether there's a password to change, without sending the hash.
+  const { passwordHash, ...profile } = user
+  return { ...profile, hasPassword: Boolean(passwordHash) }
 }
 
 export async function updateUserProfile(
