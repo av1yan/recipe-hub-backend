@@ -327,6 +327,19 @@ export function pickTitle(lines: string[]): { name: string; index: number } {
   return { name: name || 'Imported recipe', index: first ? first.i : 0 }
 }
 
+// Plural and long-form units, reduced to the form the rest of the app uses.
+const UNIT_ALIASES: Record<string, string> = {
+  cups: 'cup', tablespoon: 'tbsp', tablespoons: 'tbsp', teaspoon: 'tsp', teaspoons: 'tsp',
+  ounce: 'oz', ounces: 'oz', pound: 'lb', pounds: 'lb', lbs: 'lb', gram: 'g', grams: 'g',
+  liter: 'l', liters: 'l', litre: 'l', litres: 'l', cans: 'can', tins: 'tin', pints: 'pint',
+  quarts: 'quart', gallons: 'gallon', cloves: 'clove', pinches: 'pinch', handfuls: 'handful',
+  slices: 'slice', sprigs: 'sprig', sticks: 'stick', pieces: 'piece', bunches: 'bunch',
+}
+
+function normaliseUnit(unit: string): string {
+  return UNIT_ALIASES[unit] ?? unit
+}
+
 export function parseIngredient(raw: string): { name: string; quantity: number; unit: string } {
   const line = stripHtml(raw).replace(/^[-*•]\s*/, '').trim()
   if (!line) return { name: '', quantity: 1, unit: '' }
@@ -345,18 +358,40 @@ export function parseIngredient(raw: string): { name: string; quantity: number; 
   // Drop it before the unit is read, so "can" still comes through as the unit.
   rest = rest.replace(/^\([^)]*\)\s*/, '')
 
-  // Unit directly after the amount.
+  // A unit is only read after an amount, so "pinch of salt" keeps its words.
+  // Recipes write a bare "T" and "t" for tablespoon and teaspoon, so those are
+  // checked before the unit is lowercased.
   let unit = ''
+  // "1 24 ounce can tomatoes": the package size sits before the container, so
+  // skip it and read "can" as the unit.
+  if (amount) {
+    rest = rest.replace(
+      /^\d+(?:\.\d+)?\s*(?:oz|ounces?|g|grams?|ml|lbs?|pounds?|kg|l)\s+(?=(?:can|tin|jar|bottle|packet|pkg|package|box|bag)\b)/i,
+      ''
+    )
+  }
   const unitMatch = rest.match(/^([a-zA-Z]+)\.?\s+/)
-  if (unitMatch && UNITS.includes(unitMatch[1].toLowerCase())) {
-    unit = unitMatch[1].toLowerCase()
+  if (amount && unitMatch && (unitMatch[1] === 'T' || unitMatch[1] === 't')) {
+    unit = unitMatch[1] === 'T' ? 'tbsp' : 'tsp'
+    rest = rest.slice(unitMatch[0].length)
+  } else if (amount && unitMatch && UNITS.includes(unitMatch[1].toLowerCase())) {
+    unit = normaliseUnit(unitMatch[1].toLowerCase())
     rest = rest.slice(unitMatch[0].length)
   }
   // "1 can (28 oz) crushed tomatoes": the size can follow the unit too.
   rest = rest.replace(/^\([^)]*\)\s*/, '')
 
-  const name = rest.replace(/^of\s+/i, '').trim() || line
-  return { name, quantity: quantity || 1, unit }
+  let name = rest.replace(/^of\s+/i, '').trim()
+  // Size words describe the item rather than the amount: "2 large eggs" -> "eggs".
+  name = name.replace(/^(extra[- ]large|extra[- ]small|large|medium|small|big|jumbo)\s+(?=\S)/i, '')
+  // Some sites print "crushed tomatoes , 28 ounce": tidy the comma and drop a trailing package size.
+  name = name
+    .replace(/\s+,/g, ',')
+    .replace(/,\s*\d+(?:\.\d+)?\s*(?:oz|ounces?|g|grams?|ml|lbs?|pounds?|kg)\s*$/i, '')
+    .trim()
+
+  // No amount stays 0, so "salt and pepper to taste" is not recorded as 1.
+  return { name: name || line, quantity: amount ? quantity : 0, unit }
 }
 
 function parseAmount(s: string): number {
@@ -582,6 +617,54 @@ export async function scanGroceryImage(base64: string, mediaType: string): Promi
   return { items, configured: true }
 }
 
+/**
+ * Reads schema.org microdata (itemprop attributes) for pages with no JSON-LD.
+ * Returns a node shaped like the JSON-LD one, so draftFromSchema reads both alike.
+ */
+function microdataRecipeNode(html: string): any | null {
+  const scope = /itemtype=["']https?:\/\/schema\.org\/Recipe["']/i
+  const start = html.search(scope)
+  if (start === -1) return null
+  const after = html.slice(start + 1)
+  const next = after.search(scope)
+  const seg = html.slice(start, next === -1 ? start + 60000 : start + 1 + next)
+
+  // Each itemprop value: its tag's attributes and inner HTML.
+  const values = (prop: string) =>
+    [...seg.matchAll(new RegExp(`<(\\w+)([^>]*?)\\bitemprop=["']${prop}["']([^>]*)>([\\s\\S]*?)<\\/\\1>`, 'gi'))]
+      .map(m => ({ attrs: `${m[2]} ${m[3]}`, inner: m[4] }))
+  const attr = (attrs: string, name: string) => attrs.match(new RegExp(`\\b${name}=["']([^"']*)["']`, 'i'))?.[1] ?? ''
+  const first = (prop: string) => values(prop)[0]
+  const text = (prop: string) => {
+    const v = first(prop)
+    return v ? stripHtml(v.inner) : ''
+  }
+  // Times are either a datetime attribute ("PT25M") or words ("25 mins").
+  const time = (prop: string) => {
+    const v = first(prop)
+    if (!v) return ''
+    return attr(v.attrs, 'datetime') || ''
+  }
+  const image = seg.match(/<(?:link|meta|img)[^>]*itemprop=["']image["'][^>]*>/i)?.[0] ?? ''
+  const imageUrl = attr(image, 'href') || attr(image, 'content') || attr(image, 'src')
+
+  return {
+    '@type': 'Recipe',
+    name: text('name'),
+    description: text('description'),
+    recipeIngredient: values('ingredients').concat(values('recipeIngredient')).map(v => stripHtml(v.inner)),
+    recipeInstructions: values('recipeInstructions').map(v => stripHtml(v.inner)),
+    prepTime: time('prepTime'),
+    cookTime: time('cookTime'),
+    totalTime: time('totalTime'),
+    recipeYield: text('recipeYield'),
+    recipeCuisine: text('recipeCuisine'),
+    recipeCategory: text('recipeCategory'),
+    image: imageUrl,
+    nutrition: { calories: text('calories') },
+  }
+}
+
 export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
   const url = toUrl(rawUrl)
   if (!['http:', 'https:'].includes(url.protocol)) {
@@ -639,6 +722,9 @@ export async function importFromUrl(rawUrl: string): Promise<RecipeDraft> {
       // A malformed block on the page is not our problem; keep looking.
     }
   }
+
+  // Some sites publish the same data as microdata instead of JSON-LD.
+  if (!node) node = microdataRecipeNode(html)
 
   if (!node) {
     throw new ApiError(
